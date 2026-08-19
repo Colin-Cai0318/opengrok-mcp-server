@@ -244,9 +244,8 @@ Override per-call or globally with OPENGROK_RESPONSE_FORMAT_OVERRIDE.
 ## RATE LIMITS
 Some tools have lower per-minute limits by default:
 - opengrok_batch_search: 5 rpm (expensive — runs multiple queries)
-- opengrok_call_graph: 5 rpm (recursive search fan-out)
 - opengrok_dependency_map: 10 rpm (BFS traversal = multiple requests)
-- opengrok_search_and_read: 10 rpm (compound tool — multiple API calls)
+- opengrok_search_and_read: 10 rpm (compound tool — multiple Web requests)
 If rate-limited, wait before retrying or narrow the query scope.
 
 ## WORKFLOW
@@ -254,7 +253,7 @@ If rate-limited, wait before retrying or narrow the query scope.
 2. Use opengrok_get_symbol_context for function/class deep-dives
 3. Use opengrok_batch_search for 2-5 parallel queries
 4. Read files via opengrok_get_file_content with line ranges
-5. Use opengrok_blame / opengrok_what_changed to understand change history`.trim();
+5. Use opengrok_dependency_map to inspect include/import relationships`.trim();
 
 /**
  * Code Mode uses a shorter instruction set — only 5 tools are exposed so the full
@@ -486,6 +485,34 @@ Get compiler flags and include paths for a C/C++ file from compile_commands.json
  * Memory tools first (always registered), then Code Mode tools (when enabled),
  * then legacy tools (when Code Mode is disabled).
  */
+export const WEB_ONLY_STANDARD_TOOL_NAMES = [
+  "opengrok_search_code",
+  "opengrok_find_file",
+  "opengrok_get_file_content",
+  "opengrok_browse_directory",
+  "opengrok_list_projects",
+  "opengrok_batch_search",
+  "opengrok_search_and_read",
+  "opengrok_get_symbol_context",
+  "opengrok_index_health",
+  "opengrok_get_compile_info",
+  "opengrok_get_file_symbols",
+  "opengrok_dependency_map",
+] as const;
+
+export const REMOVED_INTERNAL_TOOL_NAMES = [
+  "opengrok_search_pattern",
+  "opengrok_search_suggest",
+  "opengrok_get_file_history",
+  "opengrok_get_file_diff",
+  "opengrok_get_file_annotate",
+  "opengrok_blame",
+  "opengrok_what_changed",
+  "opengrok_call_graph",
+] as const;
+
+const WEB_ONLY_STANDARD_TOOL_SET = new Set<string>(WEB_ONLY_STANDARD_TOOL_NAMES);
+
 export const TOOL_REGISTRATION_ORDER: string[] = [
   // Code Mode tools (registered first when OPENGROK_CODE_MODE=true)
   "opengrok_api",
@@ -494,27 +521,7 @@ export const TOOL_REGISTRATION_ORDER: string[] = [
   "opengrok_memory_status",
   "opengrok_read_memory",
   "opengrok_update_memory",
-  // Legacy tools (registered in standard mode)
-  "opengrok_search_code",
-  "opengrok_find_file",
-  "opengrok_search_pattern",
-  "opengrok_get_file_content",
-  "opengrok_get_file_history",
-  "opengrok_get_file_diff",
-  "opengrok_browse_directory",
-  "opengrok_list_projects",
-  "opengrok_get_file_annotate",
-  "opengrok_search_suggest",
-  "opengrok_batch_search",
-  "opengrok_search_and_read",
-  "opengrok_get_symbol_context",
-  "opengrok_index_health",
-  "opengrok_get_compile_info",
-  "opengrok_get_file_symbols",
-  "opengrok_call_graph",
-  "opengrok_what_changed",
-  "opengrok_blame",
-  "opengrok_dependency_map",
+  ...WEB_ONLY_STANDARD_TOOL_NAMES,
 ];
 
 // ---------------------------------------------------------------------------
@@ -1042,7 +1049,7 @@ export const TOOL_DEFS: Record<string, {
 async function executeSearchCode(
   args: {
     query: string;
-    search_type: "full" | "defs" | "refs" | "path" | "hist";
+    search_type: "full" | "defs" | "refs" | "path";
     projects?: string[];
     max_results: number;
     start_index: number;
@@ -1170,7 +1177,7 @@ async function executeBatchSearch(
   args: {
     queries: Array<{
       query: string;
-      search_type: "full" | "defs" | "refs" | "path" | "hist";
+      search_type: "full" | "defs" | "refs" | "path";
       max_results: number;
     }>;
     projects?: string[];
@@ -1494,38 +1501,6 @@ async function executeBrowseDirectory(
   return formatDirectoryListing(entries, args.project, args.path);
 }
 
-async function executeGetFileAnnotate(
-  args: z.infer<typeof GetFileAnnotateArgs>,
-  client: OpenGrokClient
-): Promise<string> {
-  const annotated = await client.getAnnotate(args.project, args.path);
-  return formatAnnotate(annotated, args.start_line, args.end_line);
-}
-
-async function executeSearchSuggest(
-  args: z.infer<typeof SearchSuggestArgs>,
-  client: OpenGrokClient
-): Promise<string> {
-  try {
-    const result = await client.suggest(args.query, args.project, args.field);
-    if (result.suggestions.length) {
-      return "Suggestions:\n" + result.suggestions.map((s) => `  ${s}`).join("\n");
-    }
-    if (result.time === 0) {
-      return "No suggestions found. The suggester index appears to be empty — an OpenGrok admin may need to rebuild it.";
-    }
-    return "No suggestions found.";
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("404") || msg.includes("405") ||
-        (err as { status?: number }).status === 404 ||
-        (err as { status?: number }).status === 405) {
-      return "Suggestions are not available on this OpenGrok instance (suggester endpoint returned 404/405). Use opengrok_search_code instead.";
-    }
-    throw err;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Central dispatcher — kept for backward-compatible test exports.
 // @deprecated Tests should use registered tool handlers via client.callTool()
@@ -1558,33 +1533,10 @@ async function dispatchTool(
       return formatSearchResults(results);
     }
 
-    case "opengrok_search_pattern": {
-      const args = SearchPatternArgs.parse(rawArgs);
-      const results = await client.searchPattern({
-        pattern: args.pattern,
-        projects: applyDefaultProject(args.projects, config),
-        fileType: args.file_type,
-        maxResults: args.max_results,
-      });
-      const fmt = selectFormat("search", args.response_format as ResponseFormat | undefined);
-      const maxBytes = MAX_RESPONSE_BYTES_OVERRIDE ?? BUDGET_LIMITS[getActiveBudget()].maxResponseBytes;
-      return pickSearchFormatter(fmt, maxBytes)(results);
-    }
-
     case "opengrok_get_file_content": {
       const args = GetFileContentArgs.parse(rawArgs);
       const { text } = await executeGetFileContent(args, client, local);
       return text;
-    }
-
-    case "opengrok_get_file_history": {
-      const args = GetFileHistoryArgs.parse(rawArgs);
-      const history = await client.getFileHistory(
-        args.project,
-        args.path,
-        args.max_entries
-      );
-      return formatFileHistory(history);
     }
 
     case "opengrok_browse_directory": {
@@ -1596,16 +1548,6 @@ async function dispatchTool(
       const args = ListProjectsArgs.parse(rawArgs);
       const { text } = await executeListProjects(args, client);
       return text;
-    }
-
-    case "opengrok_get_file_annotate": {
-      const args = GetFileAnnotateArgs.parse(rawArgs);
-      return executeGetFileAnnotate(args, client);
-    }
-
-    case "opengrok_search_suggest": {
-      const args = SearchSuggestArgs.parse(rawArgs);
-      return executeSearchSuggest(args, client);
     }
 
     case "opengrok_batch_search": {
@@ -1721,30 +1663,15 @@ async function dispatchTool(
       const args = GetFileSymbolsArgs.parse(rawArgs);
       const result = await client.getFileSymbols(args.project, args.path);
       if (!result.symbols.length) {
-        return `No symbols found for ${args.path} in project ${args.project}. The file may not be indexed or the OpenGrok instance does not support the /api/v1/file/defs endpoint.`;
+        return `No symbols found for ${args.path} in project ${args.project}. The file may not be indexed or the xref page does not expose definitions.`;
       }
       return formatFileSymbols(result);
-    }
-
-    case "opengrok_what_changed": {
-      const args = WhatChangedArgs.parse(rawArgs);
-      const [history, annotation] = await Promise.all([
-        client.getFileHistory(args.project, args.path),
-        client.getAnnotate(args.project, args.path),
-      ]);
-      return formatWhatChanged(history, annotation, args.since_days);
     }
 
     case "opengrok_dependency_map": {
       const args = DependencyMapArgs.parse(rawArgs);
       const nodes = await buildDependencyGraph(client, args.project, args.path, args.depth, args.direction);
       return formatDependencyMap(args.path, args.depth, nodes);
-    }
-
-    case "opengrok_blame": {
-      const args = BlameArgs.parse(rawArgs);
-      const annotated = await client.getAnnotate(args.project, args.path);
-      return formatBlame(annotated, args.line_start, args.line_end, args.include_diff);
     }
 
     default:
@@ -2270,36 +2197,6 @@ function registerLegacyTools(
   );
 
   server.registerTool(
-    "opengrok_search_pattern",
-    {
-      title: "Search Pattern",
-      description: desc(
-        "Search the codebase using a regular expression pattern.",
-        "Regex pattern search"
-      ),
-      inputSchema: SearchPatternArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_search_pattern" });
-      try {
-        const results = await client.searchPattern({
-          pattern: args.pattern,
-          projects: applyDefaultProject(args.projects, config),
-          fileType: args.file_type,
-          maxResults: args.max_results,
-        });
-        const fmt = selectFormat("search", args.response_format as ResponseFormat | undefined);
-        const maxBytes = MAX_RESPONSE_BYTES_OVERRIDE ?? BUDGET_LIMITS[getActiveBudget()].maxResponseBytes;
-        const text = pickSearchFormatter(fmt, maxBytes)(results);
-        return { content: [{ type: "text", text: capResponse(text) }] };
-      } catch (err) {
-        return makeToolError("opengrok_search_pattern", err);
-      }
-    }
-  );
-
-  server.registerTool(
     "opengrok_get_file_content",
     {
       title: "Get File Content",
@@ -2322,72 +2219,6 @@ function registerLegacyTools(
         return result;
       } catch (err) {
         return makeToolError("opengrok_get_file_content", err);
-      }
-    }
-  );
-
-  server.registerTool(
-    "opengrok_get_file_history",
-    {
-      title: "Get File History",
-      description: desc("Show git commit history for a file.", "File commit history"),
-      inputSchema: GetFileHistoryArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_get_file_history" });
-      try {
-        const history = await client.getFileHistory(
-          args.project,
-          args.path,
-          args.max_entries
-        );
-        const fmt = selectFormat("generic", args.response_format);
-        if (fmt === "json") {
-          const data = {
-            entries: history.entries.map((e) => ({
-              revision: e.revision,
-              author: e.author,
-              date: e.date,
-              message: e.message,
-            })),
-          };
-          return { content: [{ type: "text" as const, text: capResponse(JSON.stringify(data, null, 2)) }] };
-        }
-        return {
-          content: [
-            { type: "text" as const, text: capResponse(formatFileHistory(history)) },
-            { type: "resource_link" as const, uri: buildXrefUri(config.OPENGROK_BASE_URL, args.project, args.path), name: args.path, mimeType: getMimeType(args.path) },
-          ],
-        };
-      } catch (err) {
-        return makeToolError("opengrok_get_file_history", err);
-      }
-    }
-  );
-
-  // Tool: opengrok_get_file_diff — diff between two revisions
-  server.registerTool(
-    "opengrok_get_file_diff",
-    {
-      title: "Get File Diff",
-      description: desc(
-        "Diff between two revisions of a file (unified diff format).",
-        "Diff two file revisions"
-      ),
-      inputSchema: GetFileDiffArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_get_file_diff" });
-      try {
-        const diff = await client.getFileDiff(args.project, args.path, args.rev1, args.rev2);
-        const fmt = selectFormat("generic", args.response_format);
-        return {
-          content: [{ type: "text" as const, text: capResponse(formatFileDiff(diff, fmt)) }],
-        };
-      } catch (err) {
-        return makeToolError("opengrok_get_file_diff", err);
       }
     }
   );
@@ -2432,47 +2263,6 @@ function registerLegacyTools(
         return formatResponse(text, structured as unknown as Record<string, unknown>, format, "generic");
       } catch (err) {
         return makeToolError("opengrok_list_projects", err);
-      }
-    }
-  );
-
-  server.registerTool(
-    "opengrok_get_file_annotate",
-    {
-      title: "Get File Annotate",
-      description: desc(
-        "Annotate each line with its last commit (git blame). " +
-        "Note: start_line/end_line filtering is applied after fetching the full annotation " +
-        "(OpenGrok API limitation — no partial annotation endpoint exists).",
-        "Line-by-line blame"
-      ),
-      inputSchema: GetFileAnnotateArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_get_file_annotate" });
-      try {
-        return { content: [{ type: "text", text: capResponse(await executeGetFileAnnotate(args, client)) }] };
-      } catch (err) {
-        return makeToolError("opengrok_get_file_annotate", err);
-      }
-    }
-  );
-
-  server.registerTool(
-    "opengrok_search_suggest",
-    {
-      title: "Search Suggest",
-      description: desc("Autocomplete suggestions for a partial search query.", "Search autocomplete suggestions"),
-      inputSchema: SearchSuggestArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_search_suggest" });
-      try {
-        return { content: [{ type: "text", text: capResponse(await executeSearchSuggest(args, client)) }] };
-      } catch (err) {
-        return makeToolError("opengrok_search_suggest", err);
       }
     }
   );
@@ -2712,7 +2502,7 @@ function registerLegacyTools(
             content: [
               {
                 type: "text" as const,
-                text: `No symbols found for ${args.path} in project ${args.project}. The file may not be indexed or the OpenGrok instance does not support the /api/v1/file/defs endpoint.`,
+                text: `No symbols found for ${args.path} in project ${args.project}. The file may not be indexed or the xref page does not expose definitions.`,
               },
             ],
           };
@@ -2725,137 +2515,6 @@ function registerLegacyTools(
         };
       } catch (err) {
         return makeToolError("opengrok_get_file_symbols", err);
-      }
-    }
-  );
-
-  server.registerTool(
-    "opengrok_call_graph",
-    {
-      title: "Get Call Graph",
-      description: desc(
-        "Find all callers and callees of a function or method symbol.",
-        "Callers and callees of a symbol"
-      ),
-      inputSchema: CallGraphArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_call_graph" });
-      try {
-        // args is already validated against CallGraphArgs.shape by the MCP SDK
-        const results = await client.getCallGraph(args.project, args.symbol);
-        const fmt = selectFormat("search", args.response_format as ResponseFormat | undefined);
-        const maxBytes = MAX_RESPONSE_BYTES_OVERRIDE ?? BUDGET_LIMITS[getActiveBudget()].maxResponseBytes;
-        if (fmt === "json") {
-          const data = {
-            results: results.results.map((r: SearchResult) => ({
-              file: r.path,
-              project: r.project,
-              lines: r.matches.map((m: SearchMatch) => ({ number: m.lineNumber, content: m.lineContent })),
-            })),
-          };
-          return { content: [{ type: "text", text: capResponse(JSON.stringify(data, null, 2)) }] };
-        }
-        return {
-          content: [{ type: "text", text: pickSearchFormatter(fmt, maxBytes)(results) }],
-        };
-      } catch (err) {
-        return makeToolError("opengrok_call_graph", err);
-      }
-    }
-  );
-
-  server.registerTool(
-    "opengrok_what_changed",
-    {
-      title: "What Changed",
-      description: desc(
-        "Show which lines changed recently in a file, grouped by commit.",
-        "Recent line changes grouped by commit"
-      ),
-      inputSchema: WhatChangedArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_what_changed" });
-      try {
-        const [history, annotation] = await Promise.all([
-          client.getFileHistory(args.project, args.path),
-          client.getAnnotate(args.project, args.path),
-        ]);
-        const fmt = selectFormat("generic", args.response_format);
-        if (fmt === "json") {
-          const cutoff = new Date();
-          cutoff.setDate(cutoff.getDate() - args.since_days);
-          const recentRevisions = new Set<string>();
-          for (const entry of history.entries) {
-            const entryDate = new Date(entry.date);
-            if (!isNaN(entryDate.getTime()) && entryDate >= cutoff) {
-              recentRevisions.add(entry.revision);
-            }
-          }
-          const byRevision = new Map<string, { author: string; date: string; lines: number[] }>();
-          for (const line of annotation.lines) {
-            if (!recentRevisions.has(line.revision)) continue;
-            let group = byRevision.get(line.revision);
-            if (!group) {
-              group = { author: line.author, date: line.date, lines: [] };
-              byRevision.set(line.revision, group);
-            }
-            group.lines.push(line.lineNumber);
-          }
-          const changes = [...byRevision.entries()].map(([commit, { author, date, lines }]) => ({ commit, author, date, lines }));
-          return { content: [{ type: "text" as const, text: capResponse(JSON.stringify({ changes }, null, 2)) }] };
-        }
-        return {
-          content: [{ type: "text" as const, text: capResponse(formatWhatChanged(history, annotation, args.since_days)) }],
-        };
-      } catch (err) {
-        return makeToolError("opengrok_what_changed", err);
-      }
-    }
-  );
-
-  server.registerTool(
-    "opengrok_blame",
-    {
-      title: "Git Blame",
-      description: desc(
-        "Git blame with optional diff for a file path.",
-        "Git blame annotation"
-      ),
-      inputSchema: BlameArgs.shape,
-      annotations: READ_ONLY_OPEN,
-    },
-    async (args) => {
-      auditLog({ type: "tool_invoke", tool: "opengrok_blame" });
-      try {
-        const annotations = await client.getAnnotate(args.project, args.path);
-        const fmt = selectFormat("generic", args.response_format);
-        if (fmt === "json") {
-          let displayLines = annotations.lines;
-          if (args.line_start !== undefined || args.line_end !== undefined) {
-            /* v8 ignore start */
-            const s = args.line_start ?? 1;
-            const e = args.line_end ?? Infinity;
-            /* v8 ignore stop */
-            displayLines = annotations.lines.filter((l) => l.lineNumber >= s && l.lineNumber <= e);
-          }
-          const entries = displayLines.map((l) => ({
-            line: l.lineNumber,
-            commit: l.revision ?? "",
-            author: l.author ?? "",
-            date: l.date ?? "",
-            content: l.content,
-          }));
-          return { content: [{ type: "text", text: capResponse(JSON.stringify({ entries }, null, 2)) }] };
-        }
-        return {
-          content: [{ type: "text", text: capResponse(formatBlame(annotations, args.line_start, args.line_end, args.include_diff)) }],
-        };
-      } catch (err) {
-        return makeToolError("opengrok_blame", err);
       }
     }
   );
@@ -2945,6 +2604,9 @@ function registerToolDocResources(server: McpServer): void {
       { description: "Per-tool documentation page. URI pattern: opengrok-docs://tools/{name}", mimeType: "text/markdown" },
       (uri, variables) => {
         const name = String(variables['name'] ?? '');
+        if (!WEB_ONLY_STANDARD_TOOL_SET.has(name)) {
+          throw new Error(`Tool is not available in the Web-only build: ${name}`);
+        }
         const doc = TOOL_DOCS[name];
         if (!doc) {
           throw new Error(`No documentation found for tool: ${name}`);
@@ -3042,7 +2704,7 @@ function registerInvestigationPrompts(server: McpServer): void {
                 `1. **Definition** — use \`opengrok_search_code\` with type \`defs\` to find where \`${sym}\` is defined.`,
                 `2. **Usages** — use \`opengrok_search_code\` with type \`refs\` to find all references.`,
                 `3. **Symbol context** — use \`opengrok_get_symbol_context\` to see the full declaration with surrounding code.`,
-                `4. **Recent changes** — use \`opengrok_what_changed\` or \`opengrok_get_file_history\` on the definition file.`,
+                `4. **Dependencies** — use \`opengrok_dependency_map\` on the definition file to inspect include/import relationships.`,
                 "",
                 "Summarise: what the symbol does, where it is defined, how widely it is used, and any recent modifications.",
               ].join("\n"),
@@ -3098,7 +2760,7 @@ function registerInvestigationPrompts(server: McpServer): void {
     {
       description:
         "Perform a code review of a specific file. " +
-        "Guides the LLM through reading, history, callers, and producing a structured review.",
+        "Guides the LLM through reading, symbols, usages, dependencies, and a structured review.",
       argsSchema: {
         path: z.string().describe("Repository-relative path to the file to review"),
         project: z.string().describe("OpenGrok project the file belongs to"),
@@ -3119,10 +2781,9 @@ function registerInvestigationPrompts(server: McpServer): void {
                 "",
                 "Steps:",
                 `1. **Read file** — use \`opengrok_get_file_content\` for project \`${proj}\`, path \`${fp}\`.`,
-                `2. **File history** — use \`opengrok_get_file_history\` to understand recent changes.`,
-                `3. **Symbols** — use \`opengrok_get_file_symbols\` to list the public API surface.`,
-                `4. **Callers** — for each exported symbol, check \`opengrok_search_code\` with type \`refs\` to understand how it is used.`,
-                `5. **Annotations** — use \`opengrok_get_file_annotate\` to see which commits touched which lines.`,
+                `2. **Symbols** — use \`opengrok_get_file_symbols\` to list the public API surface.`,
+                `3. **Usages** — for each exported symbol, check \`opengrok_search_code\` with type \`refs\` to understand how it is used.`,
+                `4. **Dependencies** — use \`opengrok_dependency_map\` to inspect include/import relationships.`,
                 "",
                 "Produce a structured review covering:",
                 "- **Purpose**: what the file does",
@@ -3169,10 +2830,9 @@ function registerInvestigationPrompts(server: McpServer): void {
                 `1. **Locate the error** — use \`opengrok_search_code\` with type \`full\` for the exact error string or a distinctive fragment.`,
                 `2. **Find the throw/log site** — use \`opengrok_get_file_content\` to read the file and understand the surrounding logic.`,
                 `3. **Trace callers** — use \`opengrok_search_code\` with type \`refs\` on the function or method that emits the error to find call sites.`,
-                `4. **Check recent changes** — use \`opengrok_get_file_history\` on affected files; diff the last few revisions with \`opengrok_get_file_diff\` to identify what changed.`,
-                `5. **Blame the line** — use \`opengrok_get_file_annotate\` to confirm which commit introduced the problematic line.`,
+                `4. **Check dependencies** — use \`opengrok_dependency_map\` on affected files to identify related components.`,
                 "",
-                "Summarise: root cause, which commit introduced it, affected call paths, and a concrete fix recommendation.",
+                "Summarise: likely root cause, affected call paths, supporting code evidence, and a concrete fix recommendation. Do not infer commit history because this Web-only server does not expose SCM data.",
               ].join("\n"),
             },
           },

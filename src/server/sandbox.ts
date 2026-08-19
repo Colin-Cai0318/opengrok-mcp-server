@@ -31,7 +31,6 @@ import type { WorkerHandle } from "./worker-pool.js";
 import type { OpenGrokClient } from "./client.js";
 import type { MemoryBank } from "./memory-bank.js";
 import type { HealthAPIResult } from "./api-types.js";
-import { buildFileOverview, buildCallChain } from "./intelligence.js";
 import { logger } from "./logger.js";
 import { auditLog } from "./audit.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -92,7 +91,6 @@ export const API_SPEC = {
     "Prefer env.opengrok.getSymbolContext() over separate search+getFileContent.",
     "Prefer env.opengrok.batchSearch() over multiple env.opengrok.search() calls.",
     "Pass projects as a string array: projects: ['myproject']. Never pass a bare string. Use exact project names from browseDir({project:''}) or from search result.project fields.",
-    "env.opengrok.traceCallChain() callees direction returns empty (requires AST, not yet supported).",
     "env.opengrok.readMemory() returns null for uninitialized files — handle gracefully.",
     "When findFile() or search() returns multiple path matches and you cannot determine the correct file, call env.opengrok.elicit() with an enum of the top paths (≤10) before fetching content.",
     "When search() returns 0 results, check result._suggestions first — auto-populated with reformulation candidates when OPENGROK_ENABLE_SAMPLING is on. If absent (sampling off or no suggestions), call env.opengrok.sample() manually.",
@@ -104,13 +102,13 @@ export const API_SPEC = {
     "Never return raw API result objects — always map to the minimum string representation the caller needs.",
     "maxResults defaults to 5 — only raise it when you genuinely need more results, to avoid wasting tokens.",
     "Return early with a short string when results are empty instead of returning an empty structure.",
-    "For getFileContent/getFileHistory/getFileSymbols: always derive project and path from prior search results — never guess or hardcode them.",
+    "For getFileContent/getFileSymbols: always derive project and path from prior search results — never guess or hardcode them.",
   ],
 
   methods: {
     search: {
       signature: "env.opengrok.search(query, opts?)",
-      opts: "{ searchType?: 'full'(default)|'defs'|'refs'|'path'|'hist', projects?: string[], maxResults?: number (default:5), startIndex?: number (default:0), fileType?: string }",
+      opts: "{ searchType?: 'full'(default)|'defs'|'refs'|'path', projects?: string[], maxResults?: number (default:5), startIndex?: number (default:0), fileType?: string }",
       fileType_note: "fileType is the lowercased analyzer class name with 'analyzer' suffix removed (e.g. CxxAnalyzer → 'cxx'). Common values: 'cxx' (C++), 'c' (C/C headers), 'java', 'javascript', 'typescript', 'csharp' (C#), 'python', 'sh' (shell), 'powershell', 'golang' (Go), 'rust', 'kotlin', 'scala', 'sql', 'plsql', 'perl', 'ruby', 'swift', 'php', 'xml', 'json', 'yaml', 'hcl', 'terraform', 'lua', 'ada', 'fortran', 'r', 'haskell', 'clojure', 'erlang', 'lisp', 'ocaml', 'tcl', 'pascal', 'eiffel', 'asm', 'vb' (Visual Basic), 'verilog', 'plain'. NOT display names — use 'cxx' not 'cpp' or 'C++', 'golang' not 'go', 'sh' not 'bash', 'csharp' not 'cs' or 'C#'.",
       returns: "SearchAPIResult: { query, searchType, totalCount, startIndex, endIndex, results: [{project,path,matches:[{lineNumber,lineContent}]}], _suggestions?: string[] }",
       pagination_note: "To fetch the next page: set startIndex to the previous result's endIndex. Compare endIndex < totalCount to check if more results exist.",
@@ -143,15 +141,6 @@ export const API_SPEC = {
       signature: "env.opengrok.getFileSymbols(project, path)",
       returns: "SymbolsAPIResult: { project, path, symbols: [{symbol,type,signature,line,lineStart,lineEnd,namespace}] }",
     },
-    getFileHistory: {
-      signature: "env.opengrok.getFileHistory(project, path, opts?)",
-      opts: "{ maxEntries?: number }",
-      returns: "HistoryAPIResult: { project, path, entries: [{revision,date,author,message}] }",
-    },
-    getFileAnnotate: {
-      signature: "env.opengrok.getFileAnnotate(project, path)",
-      returns: "AnnotateAPIResult: { project, path, lines: [{lineNumber,revision,author,date,content}] }",
-    },
     browseDir: {
       signature: "env.opengrok.browseDir(project, path?)",
       note: "path defaults to '' (project root). Entry paths are relative to project root — prepend with project for follow-up calls.",
@@ -163,24 +152,6 @@ export const API_SPEC = {
       opts: "{ projects?: string[], maxResults?: number }",
       returns: "SearchAPIResult (search_type=path)",
     },
-    getFileOverview: {
-      signature: "env.opengrok.getFileOverview(project, path)",
-      returns:
-        "FileOverviewAPIResult: { lang, sizeLines, sizeBytes, imports, topLevelSymbols, recentAuthors, lastRevision }",
-      note: "Server-side intelligence: combines symbols + imports + history in one call.",
-    },
-    traceCallChain: {
-      signature: "env.opengrok.traceCallChain(symbol, opts?)",
-      opts: "{ direction?: 'callers'|'callees'|'both', depth?: number, project?: string }",
-      returns:
-        "CallChainAPIResult: { symbol, direction, callers: [{symbol,path,project,line,depth}], callees: [] }",
-      note: "callers direction supported. callees always returns empty (requires AST, not yet implemented). caller.symbol is the enclosing function name when resolvable, otherwise 'path:line'.",
-    },
-    searchSuggest: {
-      signature: "env.opengrok.searchSuggest(query, opts?)",
-      opts: "{ project?: string, field?: 'full'|'defs'|'refs'|'path' }",
-      returns: "SuggestAPIResult: { query, field, suggestions: string[], time }",
-    },
     getCompileInfo: {
       signature: "env.opengrok.getCompileInfo(path)",
       returns:
@@ -190,17 +161,6 @@ export const API_SPEC = {
     indexHealth: {
       signature: "env.opengrok.indexHealth()",
       returns: "HealthAPIResult: { connected, latencyMs, baseUrl }",
-    },
-    getFileDiff: {
-      signature: "env.opengrok.getFileDiff(project, path, rev1, rev2)",
-      returns:
-        "FileDiffAPIResult: { project, path, rev1, rev2, " +
-        "hunks: [{oldStart, oldCount, newStart, newCount, lines: [{type:'added'|'removed'|'context', content, oldLineNumber?, newLineNumber?}]}], " +
-        "unifiedDiff: string, stats: {added, removed} }",
-      note:
-        "Use opengrok.getFileHistory() first to get revision hashes. " +
-        "unifiedDiff is a standard git-diff string — prefer it for display. " +
-        "hunks[] gives structured per-line access for programmatic analysis.",
     },
     readMemory: {
       signature: "env.opengrok.readMemory(filename)",
@@ -311,20 +271,10 @@ export interface SandboxAPI {
   }): Promise<unknown>;
 
   getFileSymbols(project: string, path: string): Promise<unknown>;
-  getFileHistory(project: string, path: string, opts?: { maxEntries?: number }): Promise<unknown>;
-  getFileAnnotate(project: string, path: string): Promise<unknown>;
   browseDir(project: string, path?: string): Promise<unknown>;
   findFile(pattern: string, opts?: { projects?: string[]; maxResults?: number }): Promise<unknown>;
-  getFileOverview(project: string, path: string): Promise<unknown>;
-  traceCallChain(symbol: string, opts?: {
-    direction?: "callers" | "callees" | "both";
-    depth?: number;
-    project?: string;
-  }): Promise<unknown>;
-  searchSuggest(query: string, opts?: { project?: string; field?: string }): Promise<unknown>;
   getCompileInfo(path: string): Promise<unknown>;
   indexHealth(): Promise<unknown>;
-  getFileDiff(project: string, path: string, rev1: string, rev2: string): Promise<unknown>;
   readMemory(filename: string): Promise<unknown>;
   writeMemory(filename: string, content: string, mode?: "overwrite" | "append"): Promise<unknown>;
   elicit(
@@ -377,7 +327,7 @@ export function createSandboxAPI(
       const { searchType = "full", projects, maxResults = 5, startIndex = 0, fileType } = opts;
       const cached = await client.search(
         query,
-        searchType as "full" | "defs" | "refs" | "path" | "hist",
+        searchType as "full" | "defs" | "refs" | "path",
         applyDefault(projects), maxResults, startIndex, fileType
       );
       // Shallow-clone before any mutation so the TTLCache entry is not modified.
@@ -409,7 +359,7 @@ export function createSandboxAPI(
       const { projects, fileType } = opts;
       const effectiveProjects = applyDefault(projects);
       const settled = await Promise.allSettled(queries.map((q) =>
-        client.search(q.query, (q.searchType ?? "full") as "full" | "defs" | "refs" | "path" | "hist", effectiveProjects, q.maxResults ?? 5, 0, fileType)
+        client.search(q.query, (q.searchType ?? "full") as "full" | "defs" | "refs" | "path", effectiveProjects, q.maxResults ?? 5, 0, fileType)
       ));
       return settled.map((r, i) => {
         if (r.status === "fulfilled") return r.value;
@@ -501,14 +451,6 @@ export function createSandboxAPI(
       return client.getFileSymbols(project, path);
     },
 
-    async getFileHistory(project, path, opts = {}) {
-      return client.getFileHistory(project, path, opts.maxEntries ?? 10);
-    },
-
-    async getFileAnnotate(project, path) {
-      return client.getAnnotate(project, path);
-    },
-
     async browseDir(project, path = "") {
       const entries = await client.browseDirectory(project, path);
       return { project, path, entries };
@@ -516,20 +458,6 @@ export function createSandboxAPI(
 
     async findFile(pattern, opts = {}) {
       return client.search(pattern, "path", applyDefault(opts.projects), opts.maxResults ?? 10, 0);
-    },
-
-    async getFileOverview(project, path) {
-      return buildFileOverview(client, project, path);
-    },
-
-    async traceCallChain(symbol, opts = {}) {
-      const { direction = "callers", depth = 2, project } = opts;
-      return buildCallChain(client, symbol, direction, depth, project ?? defaultProject);
-    },
-
-    async searchSuggest(query, opts = {}) {
-      const result = await client.suggest(query, opts.project ?? defaultProject, (opts.field ?? "full") as "full" | "defs" | "refs" | "path");
-      return { query, field: opts.field ?? "full", suggestions: result.suggestions, time: result.time };
     },
 
     async getCompileInfo(path) {
@@ -546,10 +474,6 @@ export function createSandboxAPI(
         baseUrl: client.getBaseUrl(),
       };
       return result;
-    },
-
-    async getFileDiff(project, path, rev1, rev2) {
-      return client.getFileDiff(project, path, rev1, rev2);
     },
 
     async readMemory(filename) {
@@ -595,10 +519,9 @@ export function createSandboxAPI(
  */
 const SANDBOX_ALLOWED_METHODS = new Set<string>([
   "search", "batchSearch", "getFileContent", "getSymbolContext",
-  "getFileSymbols", "getFileHistory", "getFileAnnotate", "browseDir",
-  "findFile", "getFileOverview", "traceCallChain", "searchSuggest",
+  "getFileSymbols", "browseDir", "findFile",
   "getCompileInfo", "indexHealth", "readMemory", "writeMemory",
-  "getFileDiff", "elicit", "sample",
+  "elicit", "sample",
 ]);
 
 /**

@@ -25,7 +25,6 @@ export const SearchType = {
   DEFS: "defs",
   REFS: "refs",
   PATH: "path",
-  HIST: "hist",
 } as const;
 
 export type SearchTypeValue = (typeof SearchType)[keyof typeof SearchType];
@@ -38,7 +37,7 @@ const FILE_TYPE_DESC = "Filter by language: c, cxx (C++), java, python, javascri
 
 export const SearchCodeArgs = z.object({
   query: z.string().min(1, "query must not be empty").describe('Search query. Supports OpenGrok syntax: +required -excluded "exact phrase"'),
-  search_type: z.enum(["full", "defs", "refs", "path", "hist"]).default("full"),
+  search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
   projects: z.array(z.string()).optional().describe("Filter by project names. Omit to use the server default project."),
   max_results: z.number().int().min(1).max(100).default(10),
   start_index: z.number().int().min(0).default(0),
@@ -148,7 +147,7 @@ export const BatchSearchArgs = z.object({
     .array(
       z.object({
         query: z.string().min(1),
-        search_type: z.enum(["full", "defs", "refs", "path", "hist"]).default("full"),
+        search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
         max_results: z.number().int().min(1).max(25).default(5),
       })
     )
@@ -162,7 +161,7 @@ export const BatchSearchArgs = z.object({
 
 export const SearchAndReadArgs = z.object({
   query: z.string().min(1),
-  search_type: z.enum(["full", "defs", "refs", "path", "hist"]).default("full"),
+  search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
   projects: z.array(z.string()).optional(),
   context_lines: z.number().int().min(1).max(50).default(5).describe("Lines of context around each match"),
   max_results: z.number().int().min(1).max(10).default(3),
