@@ -56,6 +56,8 @@ const ConfigSchema = z.object({
   OPENGROK_BASE_URL: z.string().default(""),
   OPENGROK_USERNAME: z.string().default(""),
   OPENGROK_PASSWORD: z.string().default(""),
+  // Cookie/CAS authentication takes precedence over basic auth when present.
+  OPENGROK_COOKIE: z.string().default(""),
   OPENGROK_VERIFY_SSL: z
     .string()
     .default("true")

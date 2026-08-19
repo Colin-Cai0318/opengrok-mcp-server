@@ -13,6 +13,7 @@ import { runServer } from "./server.js";
 import { MemoryBank } from "./memory-bank.js";
 import { configureAuditLog, exportAuditLogAsCSV, exportAuditLogAsJSON } from "./audit.js";
 import { retrievePassword } from "./cli/keychain.js";
+import { parseServerArguments, serverHelp } from "./cli/connection.js";
 
 declare const __VERSION__: string;
 
@@ -27,10 +28,10 @@ declare const __VERSION__: string;
  *
  * Exported for unit testing and for use as a configLoader callback on SIGHUP.
  */
-export function resolveConfig(): ReturnType<typeof loadConfig> {
+export function resolveConfig(overrides: Record<string, string> = {}): ReturnType<typeof loadConfig> {
   // Peek at the relevant env vars without going through full loadConfig validation
-  const username = process.env['OPENGROK_USERNAME'] ?? '';
-  const envPassword = process.env['OPENGROK_PASSWORD'] ?? '';
+  const username = overrides.OPENGROK_USERNAME ?? process.env['OPENGROK_USERNAME'] ?? '';
+  const envPassword = overrides.OPENGROK_PASSWORD ?? process.env['OPENGROK_PASSWORD'] ?? '';
   const passwordFile = process.env['OPENGROK_PASSWORD_FILE'] ?? '';
 
   if (username && !envPassword && !passwordFile) {
@@ -40,11 +41,11 @@ export function resolveConfig(): ReturnType<typeof loadConfig> {
       // Pass the keychain password as an override instead of mutating process.env.
       // This prevents the plaintext secret from appearing in /proc/self/environ,
       // being inherited by child processes, or being readable by native addons.
-      return loadConfig({ OPENGROK_PASSWORD: keychainPassword });
+      return loadConfig({ ...overrides, OPENGROK_PASSWORD: keychainPassword });
     }
   }
 
-  return loadConfig();
+  return Object.keys(overrides).length ? loadConfig(overrides) : loadConfig();
 }
 
 /* v8 ignore start -- false branch falls through to main() which is integration-level */
@@ -110,7 +111,20 @@ if (firstArg === "setup" || firstArg === "--setup") {
 } else {
   // cmd === 'server' || cmd === undefined || cmd === '--server' → normal MCP server startup
   async function main(): Promise<void> {
-    const config = resolveConfig();
+    let parsedArgs;
+    try {
+      parsedArgs = parseServerArguments(process.argv.slice(2));
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(2);
+      return;
+    }
+    if (parsedArgs.help) {
+      console.log(serverHelp());
+      process.exit(0);
+      return;
+    }
+    const config = resolveConfig(parsedArgs.overrides);
     const client = new OpenGrokClient(config);
 
     // Configure audit log file if set

@@ -772,6 +772,58 @@ function makeToolError(name: string, err: unknown): ToolResult {
   return { isError: true, content: [{ type: "text", text }] };
 }
 
+/** Serialize JSON within the MCP budget without ever slicing encoded bytes. */
+function stringifyJsonWithinBudget(structured: Record<string, unknown>, maxBytes: number): string {
+  const encode = (value: unknown) => JSON.stringify(value, null, 2);
+  const size = (value: unknown) => Buffer.byteLength(encode(value), "utf8");
+  if (size(structured) <= maxBytes) return encode(structured);
+
+  const value = JSON.parse(JSON.stringify(structured)) as Record<string, unknown>;
+  value._responseTruncated = true;
+  type Candidate = { parent: Record<string, unknown> | unknown[]; key: string | number; value: unknown[] | string; priority: number };
+  const candidates = (current: unknown, parent: Record<string, unknown> | unknown[] | undefined, key: string | number | undefined, depth: number, out: Candidate[]): void => {
+    if (Array.isArray(current)) {
+      if (current.length && parent !== undefined && key !== undefined) {
+        const name = typeof key === "string" ? key : "";
+        out.push({ parent, key, value: current, priority: name === "queryResults" ? 4 : depth <= 1 ? 3 : name === "matches" ? 0 : 1 });
+      }
+      current.forEach((child, index) => candidates(child, current, index, depth + 1, out));
+    } else if (current && typeof current === "object") {
+      for (const [childKey, child] of Object.entries(current as Record<string, unknown>)) candidates(child, current as Record<string, unknown>, childKey, depth + 1, out);
+    } else if (typeof current === "string" && current.length > 64 && parent !== undefined && key !== undefined) {
+      out.push({ parent, key, value: current, priority: 2 });
+    }
+  };
+  for (let iteration = 0; iteration < 2000 && size(value) > maxBytes; iteration++) {
+    const options: Candidate[] = [];
+    candidates(value, undefined, undefined, 0, options);
+    if (!options.length) break;
+    options.sort((a, b) => a.priority - b.priority || Buffer.byteLength(JSON.stringify(b.value)) - Buffer.byteLength(JSON.stringify(a.value)));
+    const candidate = options[0];
+    (candidate.parent as Record<string | number, unknown>)[candidate.key] = Array.isArray(candidate.value)
+      ? (candidate.value.length === 1 ? [] : candidate.value.slice(0, Math.ceil(candidate.value.length / 2)))
+      : (candidate.value.length <= 64 ? "[truncated]" : `${candidate.value.slice(0, Math.max(32, Math.floor(candidate.value.length / 2)))}\n...[truncated]`);
+  }
+  if (size(value) <= maxBytes) return encode(value);
+
+  // Last-resort JSON still retains useful identity and each batch query.
+  const fallback: Record<string, unknown> = { _responseTruncated: true };
+  for (const key of ["found", "symbol", "kind", "query", "searchType", "totalCount", "project", "path"]) {
+    if (["string", "number", "boolean"].includes(typeof value[key])) fallback[key] = value[key];
+  }
+  if (value.definition && typeof value.definition === "object") {
+    const definition = value.definition as Record<string, unknown>;
+    fallback.definition = Object.fromEntries(["project", "path", "line", "lang"].filter((key) => definition[key] !== undefined).map((key) => [key, definition[key]]));
+  }
+  if (Array.isArray(value.queryResults)) {
+    fallback.queryResults = value.queryResults.map((item) => {
+      const query = item as Record<string, unknown>;
+      return { query: query.query, searchType: query.searchType, results: { results: [] } };
+    });
+  }
+  return encode(fallback);
+}
+
 /**
  * Shared helper: format a tool response, routing to compact formats via selectFormat.
  * Applies capResponse to protect LLM context windows.
@@ -790,7 +842,7 @@ function formatResponse(
   let text: string;
   switch (effective) {
     case "json":
-      text = capResponse(JSON.stringify(structured, null, 2));
+      text = stringifyJsonWithinBudget(structured, MAX_RESPONSE_BYTES_OVERRIDE ?? BUDGET_LIMITS[getActiveBudget()].maxResponseBytes);
       break;
     default:
       text = capResponse(textMarkdown);
@@ -1180,7 +1232,7 @@ async function handleSearchAndRead(
   args: z.infer<typeof SearchAndReadArgs>,
   client: OpenGrokClient,
   config: Config
-): Promise<string> {
+): Promise<{ text: string; structured: { query: string; totalCount: number; entries: SearchAndReadEntry[] } }> {
   const searchResults = await client.search(
     args.query,
     args.search_type,
@@ -1229,7 +1281,10 @@ async function handleSearchAndRead(
     }
   }
 
-  return formatSearchAndRead(args.query, searchResults.totalCount, entries);
+  return {
+    text: formatSearchAndRead(args.query, searchResults.totalCount, entries),
+    structured: { query: args.query, totalCount: searchResults.totalCount, entries },
+  };
 }
 
 async function handleGetSymbolContextStructured(
@@ -1563,7 +1618,7 @@ async function dispatchTool(
       // rawArgs are unvalidated here — parse is required. Unlike the registered MCP handler
       // (which receives args already validated by the SDK), dispatchTool is the legacy test
       // path and receives raw Record<string, unknown>.
-      return handleSearchAndRead(SearchAndReadArgs.parse(rawArgs), client, config);
+      return (await handleSearchAndRead(SearchAndReadArgs.parse(rawArgs), client, config)).text;
 
     case "opengrok_get_symbol_context": {
       const { text } = await handleGetSymbolContextStructured(rawArgs, client, config);
@@ -2170,8 +2225,8 @@ function registerLegacyTools(
           }
         }
         const { text, structured } = await executeSearchCode(effectiveArgs, client, config);
-        const hasMore = structured.endIndex < structured.totalCount;
-        const nextOffset = hasMore ? structured.endIndex : undefined;
+        const hasMore = structured.totalCount > 0 && structured.endIndex >= structured.startIndex && structured.endIndex < structured.totalCount - 1;
+        const nextOffset = hasMore ? structured.endIndex + 1 : undefined;
         return formatResponse(
           text,
           { ...structured as unknown as Record<string, unknown>, hasMore, ...(nextOffset !== undefined ? { nextOffset } : {}) },
@@ -2204,8 +2259,10 @@ function registerLegacyTools(
         );
         const fmt = selectFormat("search", args.response_format as ResponseFormat | undefined);
         const maxBytes = MAX_RESPONSE_BYTES_OVERRIDE ?? BUDGET_LIMITS[getActiveBudget()].maxResponseBytes;
-        const text = pickSearchFormatter(fmt, maxBytes)(results);
-        return { content: [{ type: "text", text: capResponse(text) }] };
+        const text = fmt === "json"
+          ? stringifyJsonWithinBudget(results as unknown as Record<string, unknown>, maxBytes)
+          : capResponse(pickSearchFormatter(fmt, maxBytes)(results));
+        return { content: [{ type: "text", text }] };
       } catch (err) {
         return makeToolError("opengrok_find_file", err);
       }
@@ -2346,7 +2403,13 @@ function registerLegacyTools(
     async (args) => {
       auditLog({ type: "tool_invoke", tool: "opengrok_browse_directory" });
       try {
-        return { content: [{ type: "text", text: capResponse(await executeBrowseDirectory(args, client)) }] };
+        const entries = await client.browseDirectory(args.project, args.path);
+        return formatResponse(
+          formatDirectoryListing(entries, args.project, args.path),
+          { project: args.project, path: args.path, entries },
+          args.response_format,
+          "generic"
+        );
       } catch (err) {
         return makeToolError("opengrok_browse_directory", err);
       }
@@ -2457,8 +2520,8 @@ function registerLegacyTools(
       auditLog({ type: "tool_invoke", tool: "opengrok_search_and_read" });
       try {
         // args is already validated by the MCP SDK against SearchAndReadArgs.shape
-        const text = await handleSearchAndRead(args, client, config);
-        return { content: [{ type: "text", text: capResponse(text) }] };
+        const { text, structured } = await handleSearchAndRead(args, client, config);
+        return formatResponse(text, structured as unknown as Record<string, unknown>, args.response_format, "search");
       } catch (err) {
         return makeToolError("opengrok_search_and_read", err);
       }
@@ -2488,7 +2551,7 @@ function registerLegacyTools(
         const effectiveFmt = selectFormat("symbol", format);
         let displayText: string;
         if (effectiveFmt === "json") {
-          displayText = capResponse(JSON.stringify(structured, null, 2));
+          displayText = stringifyJsonWithinBudget(structured as unknown as Record<string, unknown>, MAX_RESPONSE_BYTES_OVERRIDE ?? BUDGET_LIMITS[getActiveBudget()].maxResponseBytes);
         } else if (effectiveFmt === "yaml") {
           displayText = capResponse(
             formatSymbolContextYAML(structured as unknown as SymbolContextResult)

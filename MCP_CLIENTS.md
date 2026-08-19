@@ -35,7 +35,7 @@ For non-VS Code clients:
 Run the guided wizard — it configures your MCP client and stores credentials securely:
 
 ```sh
-npx opengrok-mcp-server setup
+npx @colin-cai0318/opengrok-mcp-server setup
 ```
 
 Supports **Claude Code CLI**, **GitHub Copilot CLI**, and **Codex CLI**. VS Code is configured automatically by the VS Code extension — no CLI step needed. The wizard:
@@ -62,13 +62,46 @@ opengrok-mcp status
 After running the wizard, your client config is written automatically. The examples below
 show the canonical config format for each client if you need to set it up manually.
 
-All configs use `npx opengrok-mcp-server` as the command — no global install required.
-For a global install (`npm install -g opengrok-mcp-server`), replace `npx opengrok-mcp-server`
+All configs use `npx @colin-cai0318/opengrok-mcp-server` as the command — no global install required.
+For a global install (`npm install -g @colin-cai0318/opengrok-mcp-server`), replace `npx @colin-cai0318/opengrok-mcp-server`
 with just `opengrok-mcp`.
+
+### Multiple isolated MCP instances
+
+Use a separate stdio process for each OpenGrok URL. This isolates cookies, request caches,
+default projects, and audit output; one process must not multiplex credentials for several
+servers. The fork package is `@colin-cai0318/opengrok-mcp-server`.
+
+Create `opengrok-connections.json` without secrets:
+
+```json
+{
+  "connections": {
+    "platform": { "url": "https://opengrok-platform.example/source/", "cookieEnv": "OPENGROK_PLATFORM_COOKIE" },
+    "firmware": { "url": "https://opengrok-firmware.example/source/", "cookieEnv": "OPENGROK_FIRMWARE_COOKIE" }
+  }
+}
+```
+
+Set `OPENGROK_PLATFORM_COOKIE` and `OPENGROK_FIRMWARE_COOKIE` in the environment inherited
+by the MCP client. Then register two server names with separate arguments. For Codex TOML:
+
+```toml
+[mcp_servers.opengrok_platform]
+command = "npx"
+args = ["-y", "@colin-cai0318/opengrok-mcp-server", "--connections-file", "C:/secure/opengrok-connections.json", "--connection", "platform"]
+
+[mcp_servers.opengrok_firmware]
+command = "npx"
+args = ["-y", "@colin-cai0318/opengrok-mcp-server", "--connections-file", "C:/secure/opengrok-connections.json", "--connection", "firmware"]
+```
+
+For a one-off server, omit the JSON file and pass `--url https://.../source/` directly.
+The URL is configuration metadata; never pass passwords or Cookie values as arguments.
 
 ### Claude Code
 
-> **Quickest setup:** `npx opengrok-mcp-server setup` — detects Claude Code and writes the config.
+> **Quickest setup:** `npx @colin-cai0318/opengrok-mcp-server setup` — detects Claude Code and writes the config.
 
 Scope options:
 - **Project** (team-shared, no secrets): `.mcp.json` in project root
@@ -79,7 +112,7 @@ Scope options:
   "mcpServers": {
     "opengrok": {
       "command": "npx",
-      "args": ["opengrok-mcp-server"]
+      "args": ["@colin-cai0318/opengrok-mcp-server"]
     }
   }
 }
@@ -103,7 +136,7 @@ If you prefer manual config, create `~/.config/Code/User/mcp.json` (Linux/macOS)
     "opengrok-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "opengrok-mcp-server"],
+      "args": ["-y", "@colin-cai0318/opengrok-mcp-server"],
       "env": {
         "OPENGROK_BASE_URL": "https://opengrok.example.com/source/"
       }
@@ -119,7 +152,7 @@ If you prefer manual config, create `~/.config/Code/User/mcp.json` (Linux/macOS)
 Run the wizard:
 
 ```sh
-npx opengrok-mcp-server setup
+npx @colin-cai0318/opengrok-mcp-server setup
 ```
 
 The wizard detects `copilot` binary or `~/.copilot/` directory and writes the config to
@@ -133,7 +166,7 @@ Manual config in `~/.copilot/mcp-config.json`:
     "opengrok-mcp": {
       "type": "local",
       "command": "npx",
-      "args": ["-y", "opengrok-mcp-server"],
+      "args": ["-y", "@colin-cai0318/opengrok-mcp-server"],
       "env": {
         "OPENGROK_BASE_URL": "https://opengrok.example.com/source/"
       }
@@ -153,7 +186,7 @@ Edit `.cursor/mcp.json` in your project root, or open **Cursor Settings → Feat
   "mcpServers": {
     "opengrok": {
       "command": "npx",
-      "args": ["opengrok-mcp-server"]
+      "args": ["@colin-cai0318/opengrok-mcp-server"]
     }
   }
 }
@@ -170,7 +203,7 @@ Edit `~/.codeium/windsurf/mcp_config.json`.
   "mcpServers": {
     "opengrok": {
       "command": "npx",
-      "args": ["opengrok-mcp-server"]
+      "args": ["@colin-cai0318/opengrok-mcp-server"]
     }
   }
 }
@@ -209,7 +242,7 @@ Config files: `opencode.json` / `opencode.jsonc` (project) or `~/.config/opencod
   "mcp": {
     "opengrok": {
       "type": "local",
-      "command": ["npx", "opengrok-mcp-server"]
+      "command": ["npx", "@colin-cai0318/opengrok-mcp-server"]
     }
   }
 }
@@ -227,7 +260,7 @@ mcp:
     opengrok:
       command: npx
       args:
-        - opengrok-mcp-server
+        - @colin-cai0318/opengrok-mcp-server
 ```
 
 ---
@@ -244,7 +277,7 @@ Use the MCP Store in Antigravity → *View raw config* and add:
   "mcpServers": {
     "opengrok": {
       "command": "npx",
-      "args": ["opengrok-mcp-server"]
+      "args": ["@colin-cai0318/opengrok-mcp-server"]
     }
   }
 }
@@ -263,7 +296,7 @@ For CI pipelines, pass credentials via environment variables — the server read
 export OPENGROK_BASE_URL="https://opengrok.example.com/source/"
 export OPENGROK_USERNAME="ci-bot"
 export OPENGROK_PASSWORD="$SECRET_FROM_VAULT"   # injected by your CI secrets manager
-npx opengrok-mcp-server
+npx @colin-cai0318/opengrok-mcp-server
 ```
 
 `OPENGROK_PASSWORD` in the environment takes precedence over any keychain entry.
@@ -275,7 +308,7 @@ Or in a client config (e.g., Claude Code `.mcp.json`):
   "mcpServers": {
     "opengrok": {
       "command": "npx",
-      "args": ["opengrok-mcp-server"],
+      "args": ["@colin-cai0318/opengrok-mcp-server"],
       "env": {
         "OPENGROK_BASE_URL": "https://opengrok.example.com/source/",
         "OPENGROK_USERNAME": "ci-bot",
@@ -299,7 +332,7 @@ Claude Code supports `${VAR}` expansion in `env` blocks — set the variable in 
 ### Prerequisites
 
 ```bash
-npm install -g opengrok-mcp-server   # global install
+npm install -g @colin-cai0318/opengrok-mcp-server   # global install
 # OR: use npx for one-off runs without installing
 ```
 
@@ -324,7 +357,7 @@ Full env var reference: see [README.md — Configuration Guide](README.md#config
   "mcpServers": {
     "opengrok": {
       "command": "npx",
-      "args": ["opengrok-mcp-server"],
+      "args": ["@colin-cai0318/opengrok-mcp-server"],
       "env": {
         "OPENGROK_BASE_URL": "https://opengrok.example.com/source/",
         "OPENGROK_USERNAME": "your-username",
@@ -345,22 +378,22 @@ Full env var reference: see [README.md — Configuration Guide](README.md#config
 Run the setup wizard to store credentials in the OS keychain:
 
 ```sh
-npx opengrok-mcp-server setup
+npx @colin-cai0318/opengrok-mcp-server setup
 ```
 
 Or pass `OPENGROK_PASSWORD` as an environment variable in your client config.
 
 ### `command not found: opengrok-mcp`
 
-Use `npx opengrok-mcp-server` instead, or install globally:
+Use `npx @colin-cai0318/opengrok-mcp-server` instead, or install globally:
 
 ```sh
-npm install -g opengrok-mcp-server
+npm install -g @colin-cai0318/opengrok-mcp-server
 ```
 
 ### SSL certificate errors
 
-During `npx opengrok-mcp-server setup`, answer **No** when asked "Verify SSL certificates?".
+During `npx @colin-cai0318/opengrok-mcp-server setup`, answer **No** when asked "Verify SSL certificates?".
 This configures `OPENGROK_VERIFY_SSL=false`. Or set it in your client config env block.
 
 ### Connection test fails during setup
@@ -374,7 +407,7 @@ This configures `OPENGROK_VERIFY_SSL=false`. Or set it in your client config env
 Add `"--verbose"` to the args or run the server directly in a terminal:
 
 ```sh
-OPENGROK_BASE_URL=https://... OPENGROK_USERNAME=... OPENGROK_PASSWORD=... npx opengrok-mcp-server 2>&1 | less
+OPENGROK_BASE_URL=https://... OPENGROK_USERNAME=... OPENGROK_PASSWORD=... npx @colin-cai0318/opengrok-mcp-server 2>&1 | less
 ```
 
 MCP JSON-RPC traffic goes to stdout; server logs go to stderr.

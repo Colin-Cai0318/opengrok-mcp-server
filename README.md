@@ -48,16 +48,57 @@ The extension provides a visual configuration UI and manages the MCP server proc
 
 **Global install:**
 ```bash
-npm install -g opengrok-mcp-server
+npm install -g @colin-cai0318/opengrok-mcp-server
 opengrok-mcp setup      # interactive wizard: URL, credentials, MCP client registration
 ```
 
 **Or run without installing:**
 ```bash
-npx opengrok-mcp-server setup
+npx @colin-cai0318/opengrok-mcp-server setup
 ```
 
 The wizard stores credentials securely in the OS keychain (macOS Keychain, Windows Credential Manager, Linux libsecret) with an encrypted file fallback for headless Linux.
+
+### Fork package and multiple OpenGrok connections
+
+This fork is prepared for npm publication as `@colin-cai0318/opengrok-mcp-server`. After a successful publication, it can be started without cloning the repository:
+
+```bash
+npx -y @colin-cai0318/opengrok-mcp-server --url https://opengrok.example.com/source/
+```
+
+Until a release is published to npm, the same command can run directly from GitHub (the first run downloads a temporary package, not a source checkout):
+
+```bash
+npx -y github:Colin-Cai0318/opengrok-mcp-server --url https://opengrok.example.com/source/
+```
+
+To define several endpoints once, keep secrets in environment variables and put only endpoint metadata in a local file:
+
+```json
+{
+  "connections": {
+    "platform": {
+      "url": "https://opengrok-platform.example/source/",
+      "cookieEnv": "OPENGROK_PLATFORM_COOKIE",
+      "defaultProject": "platform"
+    },
+    "firmware": {
+      "url": "https://opengrok-firmware.example/source/",
+      "cookieEnv": "OPENGROK_FIRMWARE_COOKIE"
+    }
+  }
+}
+```
+
+Start one MCP process per entry. `--url` values on the command line override the selected connection, so the same package can serve distinct endpoints in parallel:
+
+```bash
+npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json --connection platform
+npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json --connection firmware
+```
+
+See [MCP_CLIENTS.md](MCP_CLIENTS.md#multiple-isolated-mcp-instances) for multi-instance client snippets. Do not pass Cookie values with command-line arguments: shell history and process listings can expose them.
 
 ---
 
@@ -81,7 +122,7 @@ The wizard stores credentials securely in the OS keychain (macOS Keychain, Windo
 
 | Command | Description |
 | :------ | :---------- |
-| `npx opengrok-mcp-server setup` | Interactive wizard: configures your MCP client and stores credentials securely |
+| `npx @colin-cai0318/opengrok-mcp-server setup` | Interactive wizard: configures your MCP client and stores credentials securely |
 | `opengrok-mcp status` | Health check: validates connectivity and detects installed MCP clients. Reads config from `~/.claude.json`, `~/.copilot/mcp-config.json`, or Codex TOML when `OPENGROK_BASE_URL` is not in env |
 | `opengrok-mcp --version` | Print version and exit |
 
@@ -268,7 +309,7 @@ The server degrades gracefully when sampling is unavailable — `sample()` retur
 
 ### Advanced Configuration (v7 — env vars)
 
-For the standalone server (`npx opengrok-mcp-server` or Claude Code), set these environment variables:
+For the standalone server (`npx @colin-cai0318/opengrok-mcp-server` or Claude Code), set these environment variables:
 
 #### Core Settings
 
@@ -276,7 +317,7 @@ For the standalone server (`npx opengrok-mcp-server` or Claude Code), set these 
 | :--- | :--- | :--- |
 | `OPENGROK_BASE_URL` | URL | OpenGrok server base URL (required) |
 | `OPENGROK_USERNAME` | string | Authentication username (optional — leave unset for anonymous access) |
-| `OPENGROK_PASSWORD` | string | Authentication password (prefer OS keychain via `npx opengrok-mcp-server setup`) |
+| `OPENGROK_PASSWORD` | string | Authentication password (prefer OS keychain via `npx @colin-cai0318/opengrok-mcp-server setup`) |
 | `OPENGROK_VERIFY_SSL` | `true` (default) / `false` | Disable TLS verification for self-signed certs |
 | `OPENGROK_TIMEOUT` | integer (seconds, default: `30`) | HTTP request timeout |
 

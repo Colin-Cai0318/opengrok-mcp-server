@@ -205,7 +205,7 @@ describe('configureVSCode', () => {
     expect(written.servers['opengrok-mcp']).toMatchObject({
       type: 'stdio',
       command: 'npx',
-      args: ['-y', 'opengrok-mcp-server'],
+      args: ['-y', '@colin-cai0318/opengrok-mcp-server'],
     });
     expect(written.servers['opengrok-mcp'].env['OPENGROK_BASE_URL']).toBe('https://og.example.com');
   });
@@ -263,7 +263,7 @@ describe('configureCodex', () => {
     const existingToml = `[[mcp_servers]]
 name = "opengrok-mcp"
 command = "npx"
-args = ["-y", "opengrok-mcp-server"]
+args = ["-y", "@colin-cai0318/opengrok-mcp-server"]
 
 [mcp_servers.env]
 OPENGROK_BASE_URL = "https://old.example.com"
@@ -356,7 +356,7 @@ describe('configureCopilotCli', () => {
     );
   });
 
-  it('passes npx -y opengrok-mcp-server as the command after --', async () => {
+  it('passes the fork npm package as the command after --', async () => {
     mocks.spawnSyncStatus = 0;
     const cp = await import('child_process');
     const { configureCopilotCli } = await import('../../server/cli/setup/configure.js');
@@ -364,7 +364,7 @@ describe('configureCopilotCli', () => {
     const callArgs = (cp.spawnSync as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as string[];
     const sepIdx = callArgs.indexOf('--');
     expect(sepIdx).toBeGreaterThan(-1);
-    expect(callArgs.slice(sepIdx)).toEqual(['--', 'npx', '-y', 'opengrok-mcp-server']);
+    expect(callArgs.slice(sepIdx)).toEqual(['--', 'npx', '-y', '@colin-cai0318/opengrok-mcp-server']);
   });
 });
 

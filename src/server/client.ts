@@ -524,7 +524,8 @@ export class OpenGrokClient {
     urlOrPath: URL | string,
     timeoutMs: number = TIMEOUTS.default,
     accept: string = "application/json, text/html, */*",
-    retries: number = 3
+    retries: number = 3,
+    onRedirect?: (url: URL) => void
   ): Promise<Response> {
     if (this.rateLimiter) await this.rateLimiter.acquire();
 
@@ -537,7 +538,9 @@ export class OpenGrokClient {
       "User-Agent": `OpenGrok-MCP/${CLIENT_VERSION}`,
       Accept: accept,
     };
-    if (this.authHeader) {
+    if (this.config.OPENGROK_COOKIE) {
+      headers["Cookie"] = this.config.OPENGROK_COOKIE;
+    } else if (this.authHeader) {
       headers["Authorization"] = this.authHeader;
     }
 
@@ -571,14 +574,20 @@ export class OpenGrokClient {
           if (parsedLocation.hostname !== this.baseUrl.hostname || parsedLocation.port !== this.baseUrl.port) {
             throw new Error(`SSRF guard: redirected URL "${parsedLocation}" escapes allowed host "${this.baseUrl.hostname}"`);
           }
-          // Block protocol downgrade (e.g. https → http) to prevent TLS stripping
-          if (parsedLocation.protocol !== this.baseUrl.protocol) {
+          // A reverse proxy may emit an absolute same-host HTTP redirect even
+          // when the public OpenGrok endpoint is HTTPS. Keep the SSRF host and
+          // port guards, but safely rewrite this one specific downgrade.
+          if (this.baseUrl.protocol === "https:" && parsedLocation.protocol === "http:") {
+            logger.warn(`Rewriting same-host OpenGrok redirect from HTTP to HTTPS: ${parsedLocation.pathname}`);
+            parsedLocation.protocol = "https:";
+          } else if (parsedLocation.protocol !== this.baseUrl.protocol) {
             throw new Error(`SSRF guard: redirect changes protocol from "${this.baseUrl.protocol}" to "${parsedLocation.protocol}"`);
           }
 
           // Consume the unneeded redirect body to prevent fetch/undici memory leaks
           try { await response.text(); } catch { }
 
+          onRedirect?.(parsedLocation);
           currentUrl = parsedLocation;
           redirectCount++;
           continue;
@@ -638,7 +647,7 @@ export class OpenGrokClient {
         const restUrl = buildSafeUrl(this.baseUrl, `${this.apiPath}/search`);
         restUrl.searchParams.set(searchType, query);
         restUrl.searchParams.set("maxresults", String(maxResults));
-        if (projects?.length) restUrl.searchParams.set("projects", sortedProjects?.join(",") ?? "");
+        for (const project of sortedProjects ?? []) restUrl.searchParams.append("projects", project);
         if (start > 0) restUrl.searchParams.set("start", String(start));
         if (fileType) restUrl.searchParams.set("type", fileType);
         const response = await this.request(restUrl, TIMEOUTS.search, "application/json");
@@ -659,9 +668,7 @@ export class OpenGrokClient {
     const url = buildSafeUrl(this.baseUrl, `${this.apiPath}/search`);
     url.searchParams.set(searchType, query);
     url.searchParams.set("maxresults", String(maxResults));
-    if (projects?.length) {
-      url.searchParams.set("projects", sortedProjects?.join(",") ?? "");
-    }
+    for (const project of sortedProjects ?? []) url.searchParams.append("projects", project);
     if (start > 0) {
       url.searchParams.set("start", String(start));
     }
@@ -713,9 +720,34 @@ export class OpenGrokClient {
       url.searchParams.set("type", fileType);
     }
 
+    let redirectTarget: URL | undefined;
     // retries=0: web UI 500s are permanent on broken deployments — fail fast
-    const response = await this.request(url, TIMEOUTS.search, "text/html, */*", 0);
+    const response = await this.request(url, TIMEOUTS.search, "text/html, */*", 0, (target) => {
+      redirectTarget = new URL(target.toString());
+    });
     const html = await response.text();
+
+    // A unique definition can redirect directly to xref instead of returning
+    // a search-results page. Convert that Web UI contract into SearchResults.
+    if (searchType === "defs" && redirectTarget?.pathname.includes("/xref/")) {
+      const match = /\/xref\/([^/]+)\/(.+)$/.exec(redirectTarget.pathname);
+      const lineNumber = Number.parseInt(redirectTarget.hash.replace(/^#/, ""), 10);
+      if (match && Number.isFinite(lineNumber) && lineNumber > 0) {
+        return {
+          query,
+          searchType,
+          totalCount: 1,
+          timeMs: 0,
+          results: [{
+            project: decodeURIComponent(match[1]),
+            path: `/${decodeURIComponent(match[2])}`,
+            matches: [{ lineNumber, lineContent: query }],
+          }],
+          startIndex: 0,
+          endIndex: 1,
+        };
+      }
+    }
     return parseWebSearchResults(html, searchType, query);
   }
 
@@ -730,9 +762,7 @@ export class OpenGrokClient {
     url.searchParams.set("full", pattern);
     url.searchParams.set("regexp", "true");
     url.searchParams.set("maxresults", String(maxResults));
-    if (projects?.length) {
-      url.searchParams.set("projects", [...projects].sort().join(","));
-    }
+    for (const project of [...(projects ?? [])].sort()) url.searchParams.append("projects", project);
     if (fileType) {
       url.searchParams.set("type", fileType);
     }
