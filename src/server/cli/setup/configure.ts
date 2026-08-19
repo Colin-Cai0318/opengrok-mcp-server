@@ -130,7 +130,7 @@ export function configureClaudeCode(config: McpConfig): void {
   for (const [k, v] of Object.entries(env)) {
     args.push('-e', `${k}=${v}`);
   }
-  args.push('--', 'npx', '-y', 'opengrok-mcp-server');
+  args.push('--', 'npx', '-y', '@colin-cai0318/opengrok-mcp-server');
   const result = spawnSync('claude', args, { stdio: 'pipe', encoding: 'utf8', shell: false });
   if (result.status !== 0) {
     throw new Error(`claude mcp add failed: ${String(result.stderr ?? '')}`);
@@ -173,7 +173,7 @@ export function configureVSCode(config: McpConfig): string {
   servers['opengrok-mcp'] = {
     type: 'stdio',
     command: 'npx',
-    args: ['-y', 'opengrok-mcp-server'],
+    args: ['-y', '@colin-cai0318/opengrok-mcp-server'],
     env,
   };
 
@@ -194,7 +194,7 @@ export function configureCopilotCli(config: McpConfig): void {
   for (const [k, v] of Object.entries(env)) {
     args.push('--env', `${k}=${v}`);
   }
-  args.push('--', 'npx', '-y', 'opengrok-mcp-server');
+  args.push('--', 'npx', '-y', '@colin-cai0318/opengrok-mcp-server');
   const result = spawnSync('copilot', args, { stdio: 'pipe', encoding: 'utf8', shell: false });
   if (result.status !== 0) {
     throw new Error(`copilot mcp add failed: ${String(result.stderr ?? '')}`);
@@ -223,7 +223,7 @@ export function configureCodex(config: McpConfig): void {
   filtered.push({
     name: 'opengrok-mcp',
     command: 'npx',
-    args: ['-y', 'opengrok-mcp-server'],
+    args: ['-y', '@colin-cai0318/opengrok-mcp-server'],
     env: buildEnv(config),
   } as unknown as Record<string, AnyJson>);
 

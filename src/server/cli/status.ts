@@ -37,7 +37,7 @@ export async function runStatus(): Promise<void> {
     if (!config.OPENGROK_BASE_URL || msg.includes("OPENGROK_BASE_URL")) {
       console.error(
         "OpenGrok MCP Server is not configured.\n" +
-        "  Run: npx opengrok-mcp-server setup\n" +
+        "  Run: npx @colin-cai0318/opengrok-mcp-server setup\n" +
         "  Or set the OPENGROK_BASE_URL environment variable."
       );
     } else {
