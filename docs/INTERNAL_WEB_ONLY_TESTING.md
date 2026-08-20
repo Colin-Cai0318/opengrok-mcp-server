@@ -27,18 +27,9 @@ Code Mode（`OPENGROK_CODE_MODE=true`）仅暴露 5 个 MCP 工具：
 
 `opengrok_execute` 内的 `env.opengrok` 白名单也只保留 Web/local 能力，不允许绕过标准工具面调用已删除能力。
 
-## 已删除的内网不兼容工具
+## 工具面断言
 
-以下工具依赖当前内网 OpenGrok 未提供的 REST、suggester 或 SCM/annotate 能力，不再注册：
-
-- `opengrok_search_pattern`
-- `opengrok_search_suggest`
-- `opengrok_get_file_history`
-- `opengrok_get_file_diff`
-- `opengrok_get_file_annotate`
-- `opengrok_blame`
-- `opengrok_what_changed`
-- `opengrok_call_graph`
+The script strictly asserts the complete supported tool lists in standard mode and Code Mode; any unexpected name fails the run.
 
 ## 全量回归脚本
 

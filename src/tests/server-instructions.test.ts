@@ -27,9 +27,9 @@ describe('SERVER_INSTRUCTIONS token budget', () => {
 });
 
 describe('TOOL_REGISTRATION_ORDER', () => {
-  it('contains 26 tool names', async () => {
+  it('contains the exact current tool surface', async () => {
     const { TOOL_REGISTRATION_ORDER } = await import('../server/server.js');
-    expect(TOOL_REGISTRATION_ORDER.length).toBeGreaterThanOrEqual(20);
+    expect(TOOL_REGISTRATION_ORDER).toHaveLength(17);
   });
 
   it('all names start with opengrok_', async () => {

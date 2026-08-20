@@ -19,17 +19,13 @@ import type { Config } from "./config.js";
 import { parsePerToolLimits, getConfigDirectory, checkCredentialAge, loadConfig, resetConfig } from "./config.js";
 import {
   capSearchResultsToBytes,
-  formatAnnotate,
   formatBatchSearchResults,
   formatBatchSearchResultsTOON,
   formatBatchSearchResultsTSV,
-  formatBlame,
   formatCompileInfo,
   formatDirectoryListing,
-  formatFileDiff,
   formatFileContent,
   formatFileContentText,
-  formatFileHistory,
   formatFileSymbols,
   formatProjectsList,
   formatSearchAndRead,
@@ -38,7 +34,6 @@ import {
   formatSearchResultsTSV,
   formatSymbolContext,
   formatSymbolContextYAML,
-  formatWhatChanged,
   formatDependencyMap,
   selectFormat,
 } from "./formatters.js";
@@ -56,24 +51,16 @@ import {
 } from "./local/compile-info.js";
 import {
   BatchSearchArgs,
-  BlameArgs,
   BrowseDirectoryArgs,
   GetCompileInfoArgs,
-  GetFileAnnotateArgs,
   GetFileContentArgs,
-  GetFileDiffArgs,
-  GetFileHistoryArgs,
   GetFileSymbolsArgs,
-  CallGraphArgs,
   GetSymbolContextArgs,
   IndexHealthArgs,
   ListProjectsArgs,
   SearchAndReadArgs,
   SearchCodeArgs,
-  SearchPatternArgs,
-  SearchSuggestArgs,
   FindFileArgs,
-  WhatChangedArgs,
   DependencyMapArgs,
 } from "./models.js";
 import type {
@@ -224,36 +211,12 @@ const VERSION = (typeof __VERSION__ !== "undefined"
 
 export const SERVER_INSTRUCTIONS_TEMPLATE = `You are connected to an OpenGrok code search MCP server.
 
-## TOOLS
-Use opengrok_ prefixed tools to search and navigate the codebase. Run opengrok_index_health first to list available projects.
+## CONNECTION AND PROJECT
+Route Android 15 → opengrok-android-v, Android 16 → opengrok-android-w, Android 17 → opengrok-android-x. If version/connection is unclear, ask; never guess. Every code query needs an exact non-empty project. If unknown, list projects or ask; never send an empty project/projects array.
 
-## SESSION START
+## SESSION
 {{MEMORY_STATUS}}
-Run opengrok_index_health to verify connectivity, then proceed with the user's request.
-
-## RESPONSE FORMAT
-The \`response_format\` parameter controls output. Default is "auto":
-- search results → TSV (compact, tabular)
-- symbol context → YAML (hierarchical)
-- file content → text (raw)
-- other → markdown
-- toon → ultra-compact search results (~60% token savings, search tools only)
-- json → JSON in content text (for programmatic use; auto never selects this)
-Override per-call or globally with OPENGROK_RESPONSE_FORMAT_OVERRIDE.
-
-## RATE LIMITS
-Some tools have lower per-minute limits by default:
-- opengrok_batch_search: 5 rpm (expensive — runs multiple queries)
-- opengrok_dependency_map: 10 rpm (BFS traversal = multiple requests)
-- opengrok_search_and_read: 10 rpm (compound tool — multiple Web requests)
-If rate-limited, wait before retrying or narrow the query scope.
-
-## WORKFLOW
-1. Search broadly with opengrok_search_code (symbol/full/path)
-2. Use opengrok_get_symbol_context for function/class deep-dives
-3. Use opengrok_batch_search for 2-5 parallel queries
-4. Read files via opengrok_get_file_content with line ranges
-5. Use opengrok_dependency_map to inspect include/import relationships`.trim();
+Run opengrok_index_health first. Use search_code, symbol_context, batch_search, targeted file reads, and dependency_map as needed. response_format auto selects compact output; use json only for programmatic parsing. Narrow queries when rate-limited.`.trim();
 
 /**
  * Code Mode uses a shorter instruction set — only 5 tools are exposed so the full
@@ -262,41 +225,15 @@ If rate-limited, wait before retrying or narrow the query scope.
  */
 export const SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE = `You are connected to an OpenGrok code search MCP server in Code Mode.
 
-## SESSION START
+## CONNECTION AND PROJECT
+Android 15 → opengrok-android-v; Android 16 → opengrok-android-w; Android 17 → opengrok-android-x. If unknown, ask; never guess. Search only with an exact non-empty project (or configured default); never send an empty project/projects array.
+
+## SESSION
 {{MEMORY_STATUS}}
-Run opengrok_api to get the full API spec, then use opengrok_execute to run JavaScript queries.
+Call opengrok_api once, then opengrok_execute. Read memory when prior context exists; at completion append investigation-log.md and overwrite active-task.md.
 
-## MEMORY
-If prior context shown above, read both files with opengrok_read_memory before any other call.
-At session end: append to investigation-log.md and overwrite active-task.md.
-- active-task.md: current task and next step (≤ 4 KB)
-- investigation-log.md: ## YYYY-MM-DD HH:MM entries (≤ 32 KB, trimmed automatically)
-
-## CODE MODE
-Use opengrok_execute to run JavaScript with env.opengrok.* API methods.
-All methods are synchronous in the sandbox.
-
-## SANDBOX LIMITS
-- Execution timeout: 9 s (VM interrupt) + 10 s hard kill (worker terminated)
-- Memory limit: 128 MB
-- Do NOT use Promise.all() — the Atomics bridge serializes all calls from inside the VM.
-  Use env.opengrok.batchSearch() instead for parallel queries.
-- opengrok_execute is rate-limited to 10 rpm by default.
-
-## OPTIONAL FEATURES
-- env.opengrok.elicit() requires OPENGROK_ENABLE_ELICITATION=true and a supporting client.
-  Returns { action: 'cancel' } on unsupported clients — always check action before proceeding.
-- env.opengrok.sample() returns null on unsupported clients — always null-guard.
-
-## KEY PATTERNS
-File disambiguation (multiple path matches → ask user before fetching):
-  Use env.opengrok.elicit() with an enum of top paths (≤ 10).
-  If action !== 'accept', return a cancellation message — never guess.
-
-Zero-result handling:
-  Check result._suggestions first for reformulation candidates.
-  Call env.opengrok.sample() only if _suggestions is absent or unhelpful.
-  Always null-guard: const s = env.opengrok.sample(...); if (s) { ... }`.trim();
+## SANDBOX
+env.opengrok methods are synchronous. Do not use Promise.all; use batchSearch. Handle elicit cancellation and null sample results. For file ambiguity, ask before fetching. Paginate search with startIndex/endIndex as documented by opengrok_api.`.trim();
 
 // Alias for test-export backward compatibility
 const SERVER_INSTRUCTIONS = SERVER_INSTRUCTIONS_TEMPLATE;
@@ -383,43 +320,8 @@ List directory contents.
   opengrok_list_projects: `## opengrok_list_projects
 List all indexed projects. No parameters required.`,
 
-  opengrok_get_file_history: `## opengrok_get_file_history
-Get commit history for a file.
-
-**Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)`,
-
-  opengrok_get_file_annotate: `## opengrok_get_file_annotate
-Get line-by-line blame/annotation for a file.
-
-**Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)`,
-
   opengrok_get_file_symbols: `## opengrok_get_file_symbols
 List all symbols defined in a file. Call before get_file_content to find line ranges.
-
-**Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)`,
-
-  opengrok_search_suggest: `## opengrok_search_suggest
-Get search suggestions/autocomplete for a partial query.
-
-**Parameters:**
-- \`query\` — partial query (required)
-- \`project\` — project scope (optional)`,
-
-  opengrok_what_changed: `## opengrok_what_changed
-Show recently changed files in a project.
-
-**Parameters:**
-- \`project\` — project name (required)
-- \`days\` — look-back window in days (optional)`,
-
-  opengrok_blame: `## opengrok_blame
-Get blame information for a file with commit metadata.
 
 **Parameters:**
 - \`path\` — file path (required)
@@ -431,29 +333,6 @@ Build a dependency map showing what a file uses and what uses it. Rate-limited t
 **Parameters:**
 - \`path\` — file path (required)
 - \`project\` — project name (required)`,
-
-  opengrok_call_graph: `## opengrok_call_graph
-Compute a call graph for a symbol showing callers and callees.
-
-**Parameters:**
-- \`symbol\` — symbol name (required)
-- \`project\` — project name (required)`,
-
-  opengrok_search_pattern: `## opengrok_search_pattern
-Search using a regular expression pattern.
-
-**Parameters:**
-- \`pattern\` — regex pattern (required)
-- \`project\` — project scope (optional)`,
-
-  opengrok_get_file_diff: `## opengrok_get_file_diff
-Get a diff for a file between two revisions.
-
-**Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)
-- \`rev1\` — first revision (required)
-- \`rev2\` — second revision (required)`,
 
   opengrok_get_compile_info: `## opengrok_get_compile_info
 Get compiler flags and include paths for a C/C++ file from compile_commands.json.
@@ -498,17 +377,6 @@ export const WEB_ONLY_STANDARD_TOOL_NAMES = [
   "opengrok_get_compile_info",
   "opengrok_get_file_symbols",
   "opengrok_dependency_map",
-] as const;
-
-export const REMOVED_INTERNAL_TOOL_NAMES = [
-  "opengrok_search_pattern",
-  "opengrok_search_suggest",
-  "opengrok_get_file_history",
-  "opengrok_get_file_diff",
-  "opengrok_get_file_annotate",
-  "opengrok_blame",
-  "opengrok_what_changed",
-  "opengrok_call_graph",
 ] as const;
 
 const WEB_ONLY_STANDARD_TOOL_SET = new Set<string>(WEB_ONLY_STANDARD_TOOL_NAMES);
@@ -936,21 +804,9 @@ export const TOOL_DEFS: Record<string, {
     description: "Find files by name across all or one project.",
     parameters: extractZodParamDescs(FindFileArgs.shape),
   },
-  opengrok_search_pattern: {
-    description: "Search the codebase using a regular expression pattern.",
-    parameters: extractZodParamDescs(SearchPatternArgs.shape),
-  },
   opengrok_get_file_content: {
     description: "Fetch file content with optional line range.",
     parameters: extractZodParamDescs(GetFileContentArgs.shape),
-  },
-  opengrok_get_file_history: {
-    description: "Show git commit history for a file.",
-    parameters: extractZodParamDescs(GetFileHistoryArgs.shape),
-  },
-  opengrok_get_file_diff: {
-    description: "Diff between two revisions of a file (unified diff format).",
-    parameters: extractZodParamDescs(GetFileDiffArgs.shape),
   },
   opengrok_browse_directory: {
     description: "List files and subdirectories in a project directory.",
@@ -959,14 +815,6 @@ export const TOOL_DEFS: Record<string, {
   opengrok_list_projects: {
     description: "List all indexed OpenGrok projects.",
     parameters: extractZodParamDescs(ListProjectsArgs.shape),
-  },
-  opengrok_get_file_annotate: {
-    description: "Annotate each line with its last commit (git blame).",
-    parameters: extractZodParamDescs(GetFileAnnotateArgs.shape),
-  },
-  opengrok_search_suggest: {
-    description: "Autocomplete suggestions for a partial query.",
-    parameters: extractZodParamDescs(SearchSuggestArgs.shape),
   },
   opengrok_batch_search: {
     description: "Execute 2-5 parallel OpenGrok searches in one call.",
@@ -991,18 +839,6 @@ export const TOOL_DEFS: Record<string, {
   opengrok_get_file_symbols: {
     description: "List all symbols (functions, classes, variables) defined in a file.",
     parameters: extractZodParamDescs(GetFileSymbolsArgs.shape),
-  },
-  opengrok_call_graph: {
-    description: "Find all callers and callees of a function or method symbol.",
-    parameters: extractZodParamDescs(CallGraphArgs.shape),
-  },
-  opengrok_what_changed: {
-    description: "Show recent commits across one or all projects.",
-    parameters: extractZodParamDescs(WhatChangedArgs.shape),
-  },
-  opengrok_blame: {
-    description: "Git blame with optional diff for a file path.",
-    parameters: extractZodParamDescs(BlameArgs.shape),
   },
   opengrok_dependency_map: {
     description: "Build #include/import dependency graph (configurable depth).",

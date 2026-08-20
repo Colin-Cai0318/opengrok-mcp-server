@@ -160,15 +160,12 @@ Look for all places in the code where ThreadPool is instantiated or referenced.
 
 | Tool Name | Purpose |
 | ---- | ----------- |
-| `opengrok_search_code` | General search utility (full-text, defs, refs, path, history). Supports `file_type` filtering. |
+| `opengrok_search_code` | General Web search utility (full-text, defs, refs, path). Supports `file_type` filtering. |
 | `opengrok_find_file` | Locate files by name or directory pattern. |
 | `opengrok_get_file_content` | Read source code (requires `start_line` and `end_line` for large files). |
-| `opengrok_get_file_history` | Retrieve commit history logs. |
 | `opengrok_browse_directory` | View folder structure and contained files. |
 | `opengrok_list_projects` | See all indexed repositories/projects. |
-| `opengrok_get_file_annotate` | See line-by-line git blame information. |
 | `opengrok_get_file_symbols` | Extract classes, functions, macros, and structs rapidly from a single file. |
-| `opengrok_search_suggest` | Get query autocomplete recommendations. |
 
 ### 🚀 Optimized Workflows (Compound Tools)
 
@@ -183,16 +180,11 @@ Look for all places in the code where ThreadPool is instantiated or referenced.
 
 *(Note: The search functions support language filtering. Pass `file_type` as `java`, `cxx`, `python`, `golang`, etc.)*
 
-### 🔍 Investigation & Analysis Tools (v5.6+)
+### 🔍 Investigation & Analysis Tools
 
 | Tool | Purpose |
 | ---- | ------- |
-| `opengrok_what_changed` | Recent line changes grouped by commit — author, date, SHA, changed lines with context. Parameters: `project`, `path`, `since_days` |
 | `opengrok_dependency_map` | BFS traversal of `#include`/`import` chains up to configurable depth (1–3); directed graph with `uses`/`used_by` |
-| `opengrok_search_pattern` | Regex code search via `regexp=true`; returns `file:line:content` matches |
-| `opengrok_blame` | Git blame with line range (`start_line`/`end_line`); returns author, date, commit per line *(v5.6+)* |
-| `opengrok_call_graph` | Call chain tracing via OpenGrok API v2 `/symbol/{name}/callgraph` (requires `OPENGROK_API_VERSION=v2`) |
-| `opengrok_get_file_diff` | Unified diff between two revisions with full context lines — shows surrounding code so AI understands *why* a change was made; use `opengrok_get_file_history` to discover revision hashes |
 
 ### 🧠 Memory Tools (Code Mode only, v5.4+)
 
@@ -357,7 +349,6 @@ For the standalone server (`npx @colin-cai0318/opengrok-mcp-server` or Claude Co
 | `OPENGROK_CACHE_MAX_SIZE` | integer (default: `500`) | Max cache entries |
 | `OPENGROK_CACHE_SEARCH_TTL` | seconds (default: `300`) | Search result cache TTL |
 | `OPENGROK_CACHE_FILE_TTL` | seconds (default: `600`) | File content cache TTL |
-| `OPENGROK_CACHE_HISTORY_TTL` | seconds (default: `1800`) | File history cache TTL |
 | `OPENGROK_CACHE_PROJECTS_TTL` | seconds (default: `3600`) | Project list cache TTL |
 
 #### Security & Audit
@@ -374,12 +365,6 @@ For the standalone server (`npx @colin-cai0318/opengrok-mcp-server` or Claude Co
 | `OPENGROK_ENABLE_FILES_API` | `true` / `false` (default: `false`) | Enable FileReferenceCache for `investigation-log.md` (SHA-256 content-addressed) |
 | `OPENGROK_SAMPLING_MODEL` | string | Model preference for MCP Sampling (error explanation, graph summarization) |
 | `OPENGROK_SAMPLING_MAX_TOKENS` | integer (default: `256`, max: `4096`) | Token budget for MCP Sampling responses |
-
-#### OpenGrok API
-
-| Variable | Values | Description |
-| :--- | :--- | :--- |
-| `OPENGROK_API_VERSION` | `v1` (default) / `v2` | OpenGrok REST API version (`v2` required for `opengrok_call_graph`) |
 
 #### HTTP Transport (v7.0+)
 

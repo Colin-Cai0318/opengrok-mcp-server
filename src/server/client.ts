@@ -11,11 +11,8 @@ import { Agent, ProxyAgent, type Dispatcher } from "undici";
 import type { Config } from "./config";
 import { logger } from "./logger.js";
 import type {
-  AnnotatedFile,
   DirectoryEntry,
   FileContent,
-  FileDiff,
-  FileHistory,
   FileSymbol,
   FileSymbols,
   Project,
@@ -23,11 +20,8 @@ import type {
   SearchTypeValue,
 } from "./models";
 import {
-  parseAnnotate,
   parseDirectoryListing,
-  parseFileHistory,
   parseFileSymbols,
-  parseFileDiff,
   parseProjectsPage,
   parseWebSearchResults,
 } from "./parsers";
@@ -189,7 +183,6 @@ export class TTLCache<K, V> {
 // ---------------------------------------------------------------------------
 const TIMEOUTS = {
   search: 60_000,
-  suggest: 10_000,
   file: 30_000,
   default: 30_000,
 };
@@ -434,12 +427,10 @@ export class OpenGrokClient {
   private readonly verifySsl: boolean;
   private readonly rateLimiter: RateLimiter | undefined;
   private readonly agent: Dispatcher | undefined;
-  private annotateEndpoint: 'annotate' | 'xref' | null = null;
 
   // Caches
   private readonly searchCache: TTLCache<string, SearchResults> | undefined;
   private readonly fileCache: TTLCache<string, string> | undefined;
-  private readonly historyCache: TTLCache<string, FileHistory> | undefined;
   private readonly projectsCache: TTLCache<string, Project[]> | undefined;
 
   constructor(private readonly config: Config) {
@@ -484,7 +475,7 @@ export class OpenGrokClient {
       this.authHeader = `Basic ${b64}`;
     }
 
-    const maxBytes = Math.floor(config.OPENGROK_CACHE_MAX_BYTES / 4); // split budget across 4 caches
+    const maxBytes = Math.floor(config.OPENGROK_CACHE_MAX_BYTES / 3); // split budget across active caches
 
     if (config.OPENGROK_CACHE_ENABLED) {
       this.searchCache = new TTLCache(
@@ -496,11 +487,6 @@ export class OpenGrokClient {
         config.OPENGROK_CACHE_MAX_SIZE,
         maxBytes,
         config.OPENGROK_CACHE_FILE_TTL * 1000
-      );
-      this.historyCache = new TTLCache(
-        config.OPENGROK_CACHE_MAX_SIZE,
-        maxBytes,
-        config.OPENGROK_CACHE_HISTORY_TTL * 1000
       );
       this.projectsCache = new TTLCache(
         1,
@@ -748,96 +734,6 @@ export class OpenGrokClient {
     };
   }
 
-  async getFileHistory(
-    project: string,
-    path: string,
-    maxEntries: number = 10
-  ): Promise<FileHistory> {
-    assertSafePath(path);
-    const normalizedPath = path.replace(/^\/+/, "");
-    // Cache key intentionally omits maxEntries. Correctness relies on the upstream
-    // OpenGrok API returning the full history list in a single response (no server-side
-    // pagination applied to the history endpoint). If the API returns exactly N entries
-    // on the first call, a subsequent caller requesting >N entries will silently receive
-    // N with no truncation indicator. This is an accepted trade-off: the cache stores
-    // the full API response and slices to the requested length on retrieval.
-    // If the upstream API begins paginating, add maxEntries to the cache key to
-    // prevent silent under-delivery.
-    const cacheKey = `${project}:${normalizedPath}`;
-
-    let history = this.historyCache?.get(cacheKey);
-    if (!history) {
-      const url = buildSafeUrl(
-        this.baseUrl,
-        `history/${encodeURIComponent(project)}/${normalizedPath}`
-      );
-      const response = await this.request(url, TIMEOUTS.default, "text/html, */*");
-      const html = await response.text();
-      history = parseFileHistory(html, project, normalizedPath);
-      this.historyCache?.set(cacheKey, history, estimateBytes(history));
-    }
-
-    if (history.entries.length > maxEntries) {
-      return {
-        ...history,
-        entries: history.entries.slice(0, maxEntries),
-      };
-    }
-    return history;
-  }
-
-  async getAnnotate(project: string, path: string): Promise<AnnotatedFile> {
-    assertSafePath(path);
-    const normalizedPath = path.replace(/^\/+/, "");
-    const cacheKey = `annotate:${project}:${normalizedPath}`;
-
-    /* v8 ignore next -- cache hit path */
-    const cachedJson = this.fileCache?.get(cacheKey);
-    if (cachedJson !== undefined) {
-      return JSON.parse(cachedJson) as AnnotatedFile;
-    }
-
-    // Use cached endpoint style if known, otherwise probe
-    /* v8 ignore start */
-    if (this.annotateEndpoint !== 'xref') {
-    /* v8 ignore stop */
-      try {
-        const annotateUrl = buildSafeUrl(
-          this.baseUrl,
-          `annotate/${encodeURIComponent(project)}/${normalizedPath}`
-        );
-        const response = await this.request(annotateUrl, TIMEOUTS.file, "text/html, */*");
-        const html = await response.text();
-        this.annotateEndpoint = 'annotate';
-        const result = parseAnnotate(html, project, normalizedPath);
-        /* v8 ignore next -- cache set */
-        this.fileCache?.set(cacheKey, JSON.stringify(result), estimateBytes(result));
-        return result;
-      } catch {
-        /* v8 ignore start -- tested via fetch spy in client-internals; V8 coverage merge issue */
-        if (this.annotateEndpoint === 'annotate') {
-          // Cached style failed — reset and try fallback
-          this.annotateEndpoint = null;
-        }
-        /* v8 ignore stop */
-      }
-    }
-
-    /* v8 ignore start -- xref annotate fallback; tested in client-extended but V8 can't track through spy */
-    const xrefUrl = buildSafeUrl(
-      this.baseUrl,
-      `xref/${encodeURIComponent(project)}/${normalizedPath}`
-    );
-    xrefUrl.searchParams.set("a", "true");
-    const response = await this.request(xrefUrl, TIMEOUTS.file, "text/html, */*");
-    const html = await response.text();
-    this.annotateEndpoint = 'xref';
-    const result = parseAnnotate(html, project, normalizedPath);
-    this.fileCache?.set(cacheKey, JSON.stringify(result), estimateBytes(result));
-    return result;
-    /* v8 ignore stop */
-  }
-
   async getFileSymbols(project: string, path: string): Promise<FileSymbols> {
     assertSafePath(path);
     const normalizedPath = path.replace(/^\/+/, "");
@@ -935,25 +831,6 @@ export class OpenGrokClient {
     void this.search("main", "defs", undefined, 1).catch(() => undefined);
   }
 
-  async getFileDiff(
-    project: string,
-    path: string,
-    rev1: string,
-    rev2: string,
-  ): Promise<FileDiff> {
-    assertSafePath(path);
-    const normalizedPath = path.replace(/^\/+/, "");
-    const url = buildSafeUrl(this.baseUrl, `diff/${encodeURIComponent(project)}/${normalizedPath}`);
-    // r1/r2 use the OpenGrok convention: /{project}/{path}@{revision}
-    url.searchParams.set("r1", `/${project}/${normalizedPath}@${rev1}`);
-    url.searchParams.set("r2", `/${project}/${normalizedPath}@${rev2}`);
-    // format=u returns unified diff as HTML with context lines
-    url.searchParams.set("format", "u");
-    const response = await this.request(url, TIMEOUTS.file, "text/html, */*");
-    const html = await response.text();
-    return parseFileDiff(html, project, normalizedPath, rev1, rev2);
-  }
-
   getBaseUrl(): string {
     return this.baseUrl.toString();
   }
@@ -965,7 +842,6 @@ export class OpenGrokClient {
     } finally {
       this.searchCache?.clear();
       this.fileCache?.clear();
-      this.historyCache?.clear();
       this.projectsCache?.clear();
     }
   }

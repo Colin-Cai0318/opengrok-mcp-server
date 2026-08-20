@@ -71,7 +71,6 @@ const ConfigSchema = z.object({
     .transform((v) => v.toLowerCase() !== "false"),
   OPENGROK_CACHE_SEARCH_TTL: zPositiveIntString("300"),
   OPENGROK_CACHE_FILE_TTL: zPositiveIntString("600"),
-  OPENGROK_CACHE_HISTORY_TTL: zPositiveIntString("1800"),
   OPENGROK_CACHE_PROJECTS_TTL: zPositiveIntString("3600"),
   OPENGROK_CACHE_MAX_SIZE: zPositiveIntString("500"),
   OPENGROK_CACHE_MAX_BYTES: zPositiveIntString("52428800"), // 50 MB default total cache budget
@@ -115,9 +114,6 @@ const ConfigSchema = z.object({
   OPENGROK_OBSERVATION_MASKER_TURNS: z.coerce.number().int().min(1).default(10),
   // Per-tool rate limiting (comma-separated tool=rpm pairs, e.g. "opengrok_batch_search=5,opengrok_execute=10")
   OPENGROK_PER_TOOL_RATELIMIT: z.string().default(""),
-  // OpenGrok REST API version (Task 5.7)
-  OPENGROK_API_VERSION: z.enum(["v1", "v2"]).default("v1")
-    .describe("OpenGrok REST API version (v1 or v2, default: v1)"),
   // Sampling — token budget and model preference (Task 5.5)
   OPENGROK_ENABLE_SAMPLING: z.enum(["true", "false"]).default("false").transform(v => v === "true"),
   OPENGROK_SAMPLING_MAX_TOKENS: z.coerce.number().int().min(64).max(4096).default(256),
@@ -140,7 +136,6 @@ export const DEFAULT_PER_TOOL_LIMITS: Record<string, number> = {
   opengrok_execute: 10,        // Code Mode sandbox overhead
   opengrok_dependency_map: 10, // BFS = multiple requests
   opengrok_update_memory: 20,  // disk writes — allow bursting but not spamming
-  opengrok_call_graph: 5,      // recursive O(n²) search fan-out; budget counter provides inner cap
   opengrok_search_and_read: 10, // compound tool — performs multiple API calls per invocation
 };
 

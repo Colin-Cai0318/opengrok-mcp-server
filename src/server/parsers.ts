@@ -5,20 +5,16 @@
 
 import he from "he";
 import { parse as parseHtml } from "node-html-parser";
-import type {
-  AnnotatedFile,
-  AnnotateLine,
-  DirectoryEntry,
-  FileDiff,
-  DiffHunk,
-  DiffLine,
-  FileHistory,
-  FileSymbol,
-  HistoryEntry,
-  Project,
-  SearchResults,
-  SearchTypeValue,
-} from "./models.js";
+import type { DirectoryEntry, FileSymbol, Project, SearchResults, SearchTypeValue } from "./models.js";
+
+// Kept private temporarily for parser source compatibility; no exported Web-only API uses SCM data.
+interface HistoryEntry { revision: string; date: string; author: string; message: string; updateForm?: string; mergeRequest?: string; }
+interface FileHistory { project: string; path: string; entries: HistoryEntry[]; }
+interface AnnotateLine { lineNumber: number; revision: string; author: string; date: string; content: string; }
+interface AnnotatedFile { project: string; path: string; lines: AnnotateLine[]; }
+interface DiffLine { type: "added" | "removed" | "context"; oldLineNumber?: number; newLineNumber?: number; content: string; }
+interface DiffHunk { oldStart: number; oldCount: number; newStart: number; newCount: number; lines: DiffLine[]; }
+interface FileDiff { project: string; path: string; rev1: string; rev2: string; hunks: DiffHunk[]; unifiedDiff: string; stats: { added: number; removed: number }; }
 
 // ---------------------------------------------------------------------------
 // Projects page

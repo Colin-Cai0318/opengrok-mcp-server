@@ -37,7 +37,12 @@ describe("company Web UI compatibility", () => {
       .mockResolvedValueOnce(new Response("", { status: 302, headers: { location: "/opengrok/xref/P1/src/foo.c#123" } }))
       .mockResolvedValueOnce(new Response("<html></html>", { status: 200 }));
     const result = await client().search("Foo", "defs", ["P1"]);
-    expect(result).toMatchObject({ totalCount: 1, results: [{ project: "P1", path: "/src/foo.c", matches: [{ lineNumber: 123 }] }] });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result).toStrictEqual({
+      query: "Foo", searchType: "defs", totalCount: 1, timeMs: 0,
+      startIndex: 0, endIndex: 1,
+      results: [{ project: "P1", path: "/src/foo.c", matches: [{ lineNumber: 123, lineContent: "Foo" }] }],
+    });
   });
 
   it("uses repeated singular project parameters for Web UI searches", async () => {

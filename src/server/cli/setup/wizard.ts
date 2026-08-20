@@ -87,7 +87,6 @@ export async function runSetup(): Promise<void> {
 
   // --- ADVANCED (optional) ---
   const storedProxy = stored['HTTP_PROXY'] ?? stored['HTTPS_PROXY'] ?? '';
-  const storedApiVersion = stored['OPENGROK_API_VERSION'] ?? 'v1';
   const storedResponseFormat = stored['OPENGROK_RESPONSE_FORMAT_OVERRIDE'] ?? '';
   const storedMemoryBankDir = stored['OPENGROK_MEMORY_BANK_DIR'] ?? '';
   const storedCompileDbPaths = stored['OPENGROK_LOCAL_COMPILE_DB_PATHS'] ?? '';
@@ -102,20 +101,19 @@ export async function runSetup(): Promise<void> {
   const storedEnableObservationMasker = stored['OPENGROK_ENABLE_OBSERVATION_MASKER'] === 'true';
   const storedObservationMaskerTurns = stored['OPENGROK_OBSERVATION_MASKER_TURNS'] ?? '10';
 
-  const hasStoredAdvanced = storedProxy || storedApiVersion !== 'v1' || storedResponseFormat ||
+  const hasStoredAdvanced = storedProxy || storedResponseFormat ||
     storedMemoryBankDir || storedCompileDbPaths || storedEnableFilesApi || storedEnableSampling ||
     storedSamplingModel || storedSamplingMaxTokens !== '256' || storedAuditLogFile ||
     storedRateLimitRpm !== '60' || storedTimeout !== '30' || storedDefaultMaxResults !== '25' ||
     storedEnableObservationMasker || storedObservationMaskerTurns !== '10';
 
   const wantsAdvanced = await p.confirm({
-    message: 'Configure advanced settings? (proxy, API version, response format, memory bank, audit log, rate limit)',
+    message: 'Configure advanced settings? (proxy, response format, memory bank, audit log, rate limit)',
     initialValue: Boolean(hasStoredAdvanced),
   });
   if (p.isCancel(wantsAdvanced)) { p.cancel('Setup cancelled'); process.exit(0); }
 
   let proxy = storedProxy;
-  let apiVersion = storedApiVersion;
   let responseFormatOverride = storedResponseFormat;
   let memoryBankDir = storedMemoryBankDir;
   let compileDbPaths = storedCompileDbPaths;
@@ -138,17 +136,6 @@ export async function runSetup(): Promise<void> {
     });
     if (p.isCancel(proxyVal)) { p.cancel('Setup cancelled'); process.exit(0); }
     proxy = String(proxyVal);
-
-    const apiVersionVal = await p.select({
-      message: 'OpenGrok API version',
-      options: [
-        { value: 'v1', label: 'v1 — Compatible with all OpenGrok versions (default)' },
-        { value: 'v2', label: 'v2 — Required for call graph features (OpenGrok 1.12+)' },
-      ],
-      initialValue: storedApiVersion,
-    });
-    if (p.isCancel(apiVersionVal)) { p.cancel('Setup cancelled'); process.exit(0); }
-    apiVersion = String(apiVersionVal);
 
     const validFormats = ['', 'markdown', 'json', 'tsv', 'toon', 'yaml', 'text'];
     const storedFormat = validFormats.includes(storedResponseFormat) ? storedResponseFormat : '';
@@ -290,7 +277,6 @@ export async function runSetup(): Promise<void> {
     defaultProject: String(defaultProject),
     enableElicitation: Boolean(enableElicitation),
     proxy,
-    apiVersion,
     responseFormatOverride,
     memoryBankDir,
     compileDbPaths,

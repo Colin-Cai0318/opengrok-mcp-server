@@ -9,18 +9,12 @@
 
 import yaml from "js-yaml";
 import { encode as toonEncode } from "@toon-format/toon";
-import type {
-  AnnotatedFile,
-  DirectoryEntry,
-  FileDiff,
-  FileContent,
-  FileHistory,
-  FileSymbols,
-  Project,
-  SearchMatch,
-  SearchResult,
-  SearchResults,
-} from "./models.js";
+import type { DirectoryEntry, FileContent, FileSymbols, Project, SearchMatch, SearchResult, SearchResults } from "./models.js";
+
+// Legacy SCM formatter shapes are private while the unsupported parser blocks are removed.
+interface FileHistory { project: string; path: string; entries: Array<{ revision: string; date: string; author: string; message: string }>; }
+interface AnnotatedFile { project: string; path: string; lines: Array<{ lineNumber: number; revision: string; author: string; date: string; content: string }>; }
+interface FileDiff { project: string; path: string; rev1: string; rev2: string; hunks: Array<{ oldStart: number; oldCount: number; newStart: number; newCount: number; lines: Array<{ type: string; oldLineNumber?: number; newLineNumber?: number; content: string }> }>; unifiedDiff: string; stats: { added: number; removed: number }; }
 import type { CompileInfo } from "./local/compile-info.js";
 
 // ---------------------------------------------------------------------------

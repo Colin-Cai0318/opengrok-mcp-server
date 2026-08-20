@@ -40,17 +40,6 @@ const CODE_MODE_TOOLS = [
   "opengrok_update_memory",
 ].sort();
 
-const REMOVED_TOOLS = [
-  "opengrok_search_pattern",
-  "opengrok_search_suggest",
-  "opengrok_get_file_history",
-  "opengrok_get_file_diff",
-  "opengrok_get_file_annotate",
-  "opengrok_blame",
-  "opengrok_what_changed",
-  "opengrok_call_graph",
-];
-
 function usage() {
   console.log(`Usage:
   node docs/opengrok-web-only-regression.mjs --base-url URL --projects P1[,P2] [options]
@@ -214,7 +203,9 @@ async function checkedCall(client, name, args = {}, options = {}) {
   try {
     const result = await client.callTool({ name, arguments: args });
     if (result.isError) throw new Error(resultText(result) || "MCP tool returned isError=true");
-    if (options.requireJson && !payload(result)) throw new Error("response is not parseable JSON/structured content");
+    const body = payload(result);
+    if (options.requireJson && !body) throw new Error("response is not parseable JSON/structured content");
+    if (options.contract && !options.contract(body)) throw new Error("response JSON does not satisfy the expected contract");
     record(name, "PASS", options.detail?.(result) || "invoked successfully");
     return result;
   } catch (error) {
@@ -254,8 +245,6 @@ function assertExactSurface(actual, expected, label) {
   } else {
     record(`${label} tools/list`, "PASS", `${names.length} tools: ${names.join(", ")}`);
   }
-  const leaked = REMOVED_TOOLS.filter((name) => names.includes(name));
-  record(`${label} removed-tool guard`, leaked.length ? "FAIL" : "PASS", leaked.length ? leaked.join(", ") : "8 unsupported tools absent");
 }
 
 const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "opengrok-mcp-regression-"));
@@ -275,7 +264,7 @@ try {
     projects: cfg.projects,
     max_results: cfg.maxResults,
     response_format: "json",
-  }, { requireJson: true, detail: (result) => `defs total=${payload(result)?.totalCount ?? "unknown"}` });
+  }, { requireJson: true, contract: (body) => typeof body?.query === "string" && body.searchType === "defs" && Number.isInteger(body.totalCount) && Array.isArray(body.results) && Number.isInteger(body.startIndex) && Number.isInteger(body.endIndex) && typeof body.hasMore === "boolean", detail: (result) => `defs total=${payload(result)?.totalCount ?? "unknown"}` });
 
   const full = await checkedCall(standardClient, "opengrok_search_code", {
     query: cfg.query,

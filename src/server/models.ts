@@ -38,47 +38,31 @@ const FILE_TYPE_DESC = "Filter by language: c, cxx (C++), java, python, javascri
 export const SearchCodeArgs = z.object({
   query: z.string().min(1, "query must not be empty").describe('Search query. Supports OpenGrok syntax: +required -excluded "exact phrase"'),
   search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
-  projects: z.array(z.string()).optional().describe("Filter by project names. Omit to use the server default project."),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured; otherwise ask the user."),
   max_results: z.number().int().min(1).max(100).default(10),
   start_index: z.number().int().min(0).default(0),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
   response_format: RESPONSE_FORMAT,
 });
 
-export const SearchPatternArgs = z.object({
-  pattern: z.string().min(1).refine((p) => { try { new RegExp(p); return true; } catch { return false; } }, { message: "pattern must be a valid regular expression" }).describe("Regular expression pattern to search for"),
-  projects: z.array(z.string()).optional().describe("Limit to specific projects"),
-  file_type: z.string().optional().describe(FILE_TYPE_DESC),
-  max_results: z.number().int().min(1).max(100).default(20).describe("Maximum results to return"),
-  response_format: RESPONSE_FORMAT,
-});
-export type SearchPatternArgs = z.infer<typeof SearchPatternArgs>;
-
 export const FindFileArgs = z.object({
   path_pattern: z.string().min(1, "path_pattern must not be empty").describe("Path pattern (e.g., config.ts, test*.js)"),
-  projects: z.array(z.string()).optional(),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
   max_results: z.number().int().min(1).max(100).default(10),
   start_index: z.number().int().min(0).default(0),
   response_format: RESPONSE_FORMAT,
 });
 
 export const GetFileContentArgs = z.object({
-  project: z.string().min(1),
+  project: z.string().min(1, "project must not be empty").describe("Exact OpenGrok project name. Required and must not be empty; ask the user if unknown."),
   path: z.string().min(1),
   start_line: z.number().int().min(1).optional().describe("Start line (1-indexed)"),
   end_line: z.number().int().min(1).optional().describe("End line (1-indexed)"),
   response_format: RESPONSE_FORMAT,
 });
 
-export const GetFileHistoryArgs = z.object({
-  project: z.string().min(1),
-  path: z.string().min(1),
-  max_entries: z.number().int().min(1).max(50).default(10),
-  response_format: RESPONSE_FORMAT,
-});
-
 export const BrowseDirectoryArgs = z.object({
-  project: z.string().min(1),
+  project: z.string().min(1, "project must not be empty").describe("Exact OpenGrok project name. Required and must not be empty; ask the user if unknown."),
   path: z.string().default(""),
   response_format: RESPONSE_FORMAT,
 });
@@ -88,29 +72,6 @@ export const ListProjectsArgs = z.object({
   response_format: RESPONSE_FORMAT,
 });
 
-export const GetFileAnnotateArgs = z.object({
-  project: z.string().min(1),
-  path: z.string().min(1),
-  start_line: z.number().int().min(1).optional().describe("Start line (1-indexed)"),
-  end_line: z.number().int().min(1).optional().describe("End line (1-indexed)"),
-  response_format: RESPONSE_FORMAT,
-});
-
-export const SearchSuggestArgs = z.object({
-  query: z.string().min(1),
-  project: z.string().optional(),
-  field: z.enum(["full", "defs", "refs", "path"]).default("full"),
-  response_format: RESPONSE_FORMAT,
-});
-
-export const WhatChangedArgs = z.object({
-  project: z.string().min(1).describe("Project name"),
-  path: z.string().min(1).describe("Path to a specific file (not a directory) relative to project root"),
-  since_days: z.number().int().min(1).max(90).default(7).describe("How many days of history to include (1–90, default 7)"),
-  response_format: RESPONSE_FORMAT,
-});
-export type WhatChangedArgs = z.infer<typeof WhatChangedArgs>;
-
 export const DependencyMapArgs = z.object({
   project: z.string().min(1).describe("Project name"),
   path: z.string().min(1).describe("File path relative to project root"),
@@ -119,24 +80,6 @@ export const DependencyMapArgs = z.object({
   response_format: RESPONSE_FORMAT,
 });
 export type DependencyMapArgs = z.infer<typeof DependencyMapArgs>;
-
-export const BlameArgs = z.object({
-  project: z.string().min(1).describe("Project name"),
-  path: z.string().min(1).describe("File path relative to project root"),
-  line_start: z.number().int().min(1).optional().describe("Start line (1-indexed, default 1)"),
-  line_end: z.number().int().min(1).optional().describe("End line (inclusive, default: all lines)"),
-  include_diff: z.boolean().default(false).describe("Include the commit diff summary for each unique commit"),
-  response_format: RESPONSE_FORMAT,
-}).superRefine((data, ctx) => {
-  if (data.line_start !== undefined && data.line_end !== undefined && data.line_end < data.line_start) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "line_end must be >= line_start",
-      path: ["line_end"],
-    });
-  }
-});
-export type BlameArgs = z.infer<typeof BlameArgs>;
 
 // ---------------------------------------------------------------------------
 // Compound tool argument schemas
@@ -154,7 +97,7 @@ export const BatchSearchArgs = z.object({
     .min(1)
     .max(5)
     .describe("Search queries to execute in parallel"),
-  projects: z.array(z.string()).optional(),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
   response_format: RESPONSE_FORMAT,
 });
@@ -162,7 +105,7 @@ export const BatchSearchArgs = z.object({
 export const SearchAndReadArgs = z.object({
   query: z.string().min(1),
   search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
-  projects: z.array(z.string()).optional(),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
   context_lines: z.number().int().min(1).max(50).default(5).describe("Lines of context around each match"),
   max_results: z.number().int().min(1).max(10).default(3),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
@@ -171,7 +114,7 @@ export const SearchAndReadArgs = z.object({
 
 export const GetSymbolContextArgs = z.object({
   symbol: z.string().min(1).describe("Symbol name (class, function, method, etc.)"),
-  projects: z.array(z.string()).optional(),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
   context_lines: z.number().int().min(5).max(50).default(20).describe("Lines of context around the definition"),
   max_refs: z.number().int().min(1).max(20).default(5),
   include_header: z.boolean().default(true).describe("Also fetch corresponding .h/.hpp if a .cpp definition is found"),
@@ -192,22 +135,8 @@ export const GetCompileInfoArgs = z.object({
 });
 
 export const GetFileSymbolsArgs = z.object({
-  project: z.string().min(1).describe("OpenGrok project name"),
+  project: z.string().min(1, "project must not be empty").describe("Exact OpenGrok project name. Required and must not be empty; ask the user if unknown."),
   path: z.string().min(1).describe("Path to the file within the project (e.g. GridNode/EventLoop.cpp)"),
-  response_format: RESPONSE_FORMAT,
-});
-
-export const CallGraphArgs = z.object({
-  project: z.string().min(1).describe("OpenGrok project name"),
-  symbol: z.string().min(1).describe("Symbol name (function or method name) to get call graph for"),
-  response_format: RESPONSE_FORMAT,
-});
-
-export const GetFileDiffArgs = z.object({
-  project: z.string().min(1).describe("OpenGrok project name"),
-  path: z.string().min(1).describe("File path within the project (e.g. src/Foo.cpp)"),
-  rev1: z.string().min(1).describe("First (older) revision hash — get from opengrok_get_file_history."),
-  rev2: z.string().min(1).describe("Second (newer) revision hash"),
   response_format: RESPONSE_FORMAT,
 });
 
@@ -236,21 +165,6 @@ export interface SearchResults {
   endIndex: number;
 }
 
-export interface HistoryEntry {
-  revision: string;
-  date: string;
-  author: string;
-  message: string;
-  updateForm?: string;
-  mergeRequest?: string;
-}
-
-export interface FileHistory {
-  project: string;
-  path: string;
-  entries: HistoryEntry[];
-}
-
 export interface FileContent {
   project: string;
   path: string;
@@ -274,20 +188,6 @@ export interface Project {
   description?: string;
 }
 
-export interface AnnotateLine {
-  lineNumber: number;
-  revision: string;
-  author: string;
-  date: string;
-  content: string;
-}
-
-export interface AnnotatedFile {
-  project: string;
-  path: string;
-  lines: AnnotateLine[];
-}
-
 export interface FileSymbol {
   symbol: string;
   type: string;
@@ -302,35 +202,6 @@ export interface FileSymbols {
   project: string;
   path: string;
   symbols: FileSymbol[];
-}
-
-export interface DiffLine {
-  /** 'added' = new line (+), 'removed' = old line (-), 'context' = unchanged */
-  type: 'added' | 'removed' | 'context';
-  oldLineNumber?: number;
-  newLineNumber?: number;
-  /** Raw line content (no +/- prefix) */
-  content: string;
-}
-
-export interface DiffHunk {
-  oldStart: number;
-  oldCount: number;
-  newStart: number;
-  newCount: number;
-  lines: DiffLine[];
-}
-
-export interface FileDiff {
-  project: string;
-  path: string;
-  rev1: string;
-  rev2: string;
-  /** Structured list of change hunks */
-  hunks: DiffHunk[];
-  /** Standard unified diff string (git-diff compatible) */
-  unifiedDiff: string;
-  stats: { added: number; removed: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -454,19 +325,6 @@ const MetaSchema = z.object({
   version: z.string(),
 });
 
-/** Output schema for opengrok_get_file_history */
-export const FileHistoryOutput = z.object({
-  _meta: MetaSchema,
-  entries: z.array(
-    z.object({
-      revision: z.string(),
-      author: z.string(),
-      date: z.string(),
-      message: z.string(),
-    })
-  ),
-});
-
 /** Output schema for opengrok_get_file_symbols */
 export const FileSymbolsOutput = z.object({
   _meta: MetaSchema,
@@ -475,19 +333,6 @@ export const FileSymbolsOutput = z.object({
       name: z.string(),
       type: z.string(),
       line: z.number(),
-    })
-  ),
-});
-
-/** Output schema for opengrok_what_changed */
-export const WhatChangedOutput = z.object({
-  _meta: MetaSchema,
-  changes: z.array(
-    z.object({
-      commit: z.string(),
-      author: z.string(),
-      date: z.string(),
-      lines: z.array(z.number()),
     })
   ),
 });
@@ -504,65 +349,3 @@ export const DependencyMapOutput = z.object({
   ),
 });
 
-/** Output schema for opengrok_blame */
-export const BlameLineEntry = z.object({
-  line: z.number(),
-  commit: z.string(),
-  author: z.string(),
-  date: z.string(),
-  content: z.string(),
-});
-
-export const BlameOutput = z.object({
-  _meta: MetaSchema,
-  entries: z.array(BlameLineEntry),
-});
-
-/** Output schema for opengrok_get_file_diff */
-export const FileDiffOutput = z.object({
-  _meta: z.object({
-    tool: z.string(),
-    project: z.string(),
-    path: z.string(),
-    rev1: z.string(),
-    rev2: z.string(),
-    fetchedAt: z.string(),
-    version: z.string(),
-  }),
-  stats: z.object({
-    linesAdded: z.number(),
-    linesRemoved: z.number(),
-  }).optional(),
-  hunks: z.array(
-    z.object({
-      oldStart: z.number(),
-      oldCount: z.number(),
-      newStart: z.number(),
-      newCount: z.number(),
-      lines: z.number(),
-    })
-  ),
-});
-
-/** Output schema for opengrok_call_graph */
-export const CallGraphOutput = z.object({
-  _meta: z.object({
-    tool: z.string(),
-    project: z.string(),
-    symbol: z.string(),
-    fetchedAt: z.string(),
-    version: z.string(),
-  }),
-  results: z.array(
-    z.object({
-      file: z.string(),
-      project: z.string(),
-      lines: z.array(
-        z.object({
-          number: z.number(),
-          content: z.string(),
-        })
-      ),
-    })
-  ),
-});

@@ -6,7 +6,6 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Config } from "../server/config.js";
 import {
   createServer,
-  REMOVED_INTERNAL_TOOL_NAMES,
   WEB_ONLY_STANDARD_TOOL_NAMES,
 } from "../server/server.js";
 import { MemoryBank } from "../server/memory-bank.js";
@@ -32,7 +31,6 @@ function makeConfig(codeMode: boolean): Config {
     OPENGROK_CACHE_ENABLED: false,
     OPENGROK_CACHE_SEARCH_TTL: 300,
     OPENGROK_CACHE_FILE_TTL: 600,
-    OPENGROK_CACHE_HISTORY_TTL: 1800,
     OPENGROK_CACHE_PROJECTS_TTL: 3600,
     OPENGROK_CACHE_MAX_SIZE: 500,
     OPENGROK_CACHE_MAX_BYTES: 52_428_800,
@@ -89,11 +87,6 @@ async function listToolNames(codeMode: boolean): Promise<string[]> {
 describe("web-only MCP tool surface", () => {
   it("exposes exactly the 12 supported standard-mode tools", async () => {
     expect(await listToolNames(false)).toEqual([...WEB_ONLY_STANDARD_TOOL_NAMES].sort());
-  });
-
-  it("does not expose any internal-unsupported tools", async () => {
-    const names = await listToolNames(false);
-    expect(names.filter((name) => REMOVED_INTERNAL_TOOL_NAMES.includes(name as never))).toEqual([]);
   });
 
   it("exposes exactly the five Code Mode MCP tools", async () => {

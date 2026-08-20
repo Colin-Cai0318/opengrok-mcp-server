@@ -90,7 +90,7 @@ export const API_SPEC = {
     "IMPORTANT: Do NOT write Promise.all(...) in your sandbox JS — the Atomics bridge serializes calls from inside the VM. Use env.opengrok.batchSearch() instead — it runs queries in parallel on the host event loop.",
     "Prefer env.opengrok.getSymbolContext() over separate search+getFileContent.",
     "Prefer env.opengrok.batchSearch() over multiple env.opengrok.search() calls.",
-    "Pass projects as a string array: projects: ['myproject']. Never pass a bare string. Use exact project names from browseDir({project:''}) or from search result.project fields.",
+    "Pass projects as a non-empty string array: projects: ['myproject']. Never pass a bare string or an empty array. If no configured default project exists and the exact project is unknown, ask the user before searching.",
     "env.opengrok.readMemory() returns null for uninitialized files — handle gracefully.",
     "When findFile() or search() returns multiple path matches and you cannot determine the correct file, call env.opengrok.elicit() with an enum of the top paths (≤10) before fetching content.",
     "When search() returns 0 results, check result._suggestions first — auto-populated with reformulation candidates when OPENGROK_ENABLE_SAMPLING is on. If absent (sampling off or no suggestions), call env.opengrok.sample() manually.",
@@ -102,7 +102,7 @@ export const API_SPEC = {
     "Never return raw API result objects — always map to the minimum string representation the caller needs.",
     "maxResults defaults to 5 — only raise it when you genuinely need more results, to avoid wasting tokens.",
     "Return early with a short string when results are empty instead of returning an empty structure.",
-    "For getFileContent/getFileSymbols: always derive project and path from prior search results — never guess or hardcode them.",
+    "For getFileContent/getFileSymbols: project is required, must be non-empty, and must come from prior search results or explicit user input — never guess or hardcode it.",
   ],
 
   methods: {
@@ -111,8 +111,8 @@ export const API_SPEC = {
       opts: "{ searchType?: 'full'(default)|'defs'|'refs'|'path', projects?: string[], maxResults?: number (default:5), startIndex?: number (default:0), fileType?: string }",
       fileType_note: "fileType is the lowercased analyzer class name with 'analyzer' suffix removed (e.g. CxxAnalyzer → 'cxx'). Common values: 'cxx' (C++), 'c' (C/C headers), 'java', 'javascript', 'typescript', 'csharp' (C#), 'python', 'sh' (shell), 'powershell', 'golang' (Go), 'rust', 'kotlin', 'scala', 'sql', 'plsql', 'perl', 'ruby', 'swift', 'php', 'xml', 'json', 'yaml', 'hcl', 'terraform', 'lua', 'ada', 'fortran', 'r', 'haskell', 'clojure', 'erlang', 'lisp', 'ocaml', 'tcl', 'pascal', 'eiffel', 'asm', 'vb' (Visual Basic), 'verilog', 'plain'. NOT display names — use 'cxx' not 'cpp' or 'C++', 'golang' not 'go', 'sh' not 'bash', 'csharp' not 'cs' or 'C#'.",
       returns: "SearchAPIResult: { query, searchType, totalCount, startIndex, endIndex, results: [{project,path,matches:[{lineNumber,lineContent}]}], _suggestions?: string[] }",
-      pagination_note: "To fetch the next page: set startIndex to the previous result's endIndex. Compare endIndex < totalCount to check if more results exist.",
-      project_note: "OPENGROK_DEFAULT_PROJECT is auto-injected into projects for ALL search types when configured. Always use result.project and result.path from results for follow-up calls — never hardcode.",
+      pagination_note: "Web UI pagination: for the next page, set startIndex to the previous endIndex. Continue only while endIndex < totalCount; do not repeat a page or use batchSearch for pagination.",
+      project_note: "projects must be a non-empty array of exact project names unless OPENGROK_DEFAULT_PROJECT is configured. Always use result.project and result.path from results for follow-up calls — never hardcode or guess.",
       defs_refs_note: "defs and refs require a project to be scoped (pass projects or rely on auto-inject). Without a project they may return too many cross-project hits.",
     },
     batchSearch: {
