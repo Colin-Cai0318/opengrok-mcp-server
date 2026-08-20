@@ -11,11 +11,8 @@ import { Agent, ProxyAgent, type Dispatcher } from "undici";
 import type { Config } from "./config";
 import { logger } from "./logger.js";
 import type {
-  AnnotatedFile,
   DirectoryEntry,
   FileContent,
-  FileDiff,
-  FileHistory,
   FileSymbol,
   FileSymbols,
   Project,
@@ -23,11 +20,8 @@ import type {
   SearchTypeValue,
 } from "./models";
 import {
-  parseAnnotate,
   parseDirectoryListing,
-  parseFileHistory,
   parseFileSymbols,
-  parseFileDiff,
   parseProjectsPage,
   parseWebSearchResults,
 } from "./parsers";
@@ -189,7 +183,6 @@ export class TTLCache<K, V> {
 // ---------------------------------------------------------------------------
 const TIMEOUTS = {
   search: 60_000,
-  suggest: 10_000,
   file: 30_000,
   default: 30_000,
 };
@@ -430,17 +423,14 @@ export function buildSafeUrl(baseUrl: URL, ...segments: string[]): URL {
 
 export class OpenGrokClient {
   private readonly baseUrl: URL;
-  private readonly apiPath: string;
   private readonly authHeader: string | undefined;
   private readonly verifySsl: boolean;
   private readonly rateLimiter: RateLimiter | undefined;
   private readonly agent: Dispatcher | undefined;
-  private annotateEndpoint: 'annotate' | 'xref' | null = null;
 
   // Caches
   private readonly searchCache: TTLCache<string, SearchResults> | undefined;
   private readonly fileCache: TTLCache<string, string> | undefined;
-  private readonly historyCache: TTLCache<string, FileHistory> | undefined;
   private readonly projectsCache: TTLCache<string, Project[]> | undefined;
 
   constructor(private readonly config: Config) {
@@ -453,7 +443,6 @@ export class OpenGrokClient {
       ? config.OPENGROK_BASE_URL
       : config.OPENGROK_BASE_URL + "/";
     this.baseUrl = new URL(raw);
-    this.apiPath = config.OPENGROK_API_VERSION === "v2" ? "api/v2" : "api/v1";
     this.verifySsl = config.OPENGROK_VERIFY_SSL;
     const agentOptions = {
       connections: 20,
@@ -486,7 +475,7 @@ export class OpenGrokClient {
       this.authHeader = `Basic ${b64}`;
     }
 
-    const maxBytes = Math.floor(config.OPENGROK_CACHE_MAX_BYTES / 4); // split budget across 4 caches
+    const maxBytes = Math.floor(config.OPENGROK_CACHE_MAX_BYTES / 3); // split budget across active caches
 
     if (config.OPENGROK_CACHE_ENABLED) {
       this.searchCache = new TTLCache(
@@ -498,11 +487,6 @@ export class OpenGrokClient {
         config.OPENGROK_CACHE_MAX_SIZE,
         maxBytes,
         config.OPENGROK_CACHE_FILE_TTL * 1000
-      );
-      this.historyCache = new TTLCache(
-        config.OPENGROK_CACHE_MAX_SIZE,
-        maxBytes,
-        config.OPENGROK_CACHE_HISTORY_TTL * 1000
       );
       this.projectsCache = new TTLCache(
         1,
@@ -636,64 +620,26 @@ export class OpenGrokClient {
   ): Promise<SearchResults> {
     const sortedProjects = projects ? [...projects].sort() : undefined;
     // Use deterministic join instead of JSON.stringify to avoid object-key ordering differences
-    const cacheKey = `${searchType}:${query}:${sortedProjects ? sortedProjects.join(",") : ""}:${maxResults}:${start}:${fileType ?? ""}`;    const cached = this.searchCache?.get(cacheKey);
+    const cacheKey = `${searchType}:${query}:${sortedProjects ? sortedProjects.join(",") : ""}:${maxResults}:${start}:${fileType ?? ""}`;
+    const cached = this.searchCache?.get(cacheKey);
     if (cached) return cached;
 
-    // For defs/refs, OpenGrok 1.7.x REST API returns 400 — fall back to web
-    // search HTML parsing which supports all search fields.
-    if (searchType === "defs" || searchType === "refs") {
-      // Try REST API first (supported on newer OpenGrok deployments)
-      try {
-        const restUrl = buildSafeUrl(this.baseUrl, `${this.apiPath}/search`);
-        restUrl.searchParams.set(searchType, query);
-        restUrl.searchParams.set("maxresults", String(maxResults));
-        for (const project of sortedProjects ?? []) restUrl.searchParams.append("projects", project);
-        if (start > 0) restUrl.searchParams.set("start", String(start));
-        if (fileType) restUrl.searchParams.set("type", fileType);
-        const response = await this.request(restUrl, TIMEOUTS.search, "application/json");
-        const data = (await response.json()) as Record<string, unknown>;
-        const results = parseSearchResponse(data, searchType, query);
-        this.searchCache?.set(cacheKey, results, estimateBytes(results));
-        return results;
-      } catch {
-        // REST API doesn't support defs/refs (older OpenGrok returns 400) — try web UI
-      }
-      // Web UI fallback — errors propagate to the caller so the LLM can act on them
-      // (e.g. "You must select a project" → LLM adds projects: ['name'] to the call)
-      const results = await this.searchWeb(query, searchType, projects, maxResults, fileType);
-      this.searchCache?.set(cacheKey, results, estimateBytes(results));
-      return results;
-    }
-
-    const url = buildSafeUrl(this.baseUrl, `${this.apiPath}/search`);
-    url.searchParams.set(searchType, query);
-    url.searchParams.set("maxresults", String(maxResults));
-    for (const project of sortedProjects ?? []) url.searchParams.append("projects", project);
-    if (start > 0) {
-      url.searchParams.set("start", String(start));
-    }
-    if (fileType) {
-      url.searchParams.set("type", fileType);
-    }
-
-    const response = await this.request(url, TIMEOUTS.search, "application/json");
-    const data = (await response.json()) as Record<string, unknown>;
-    const results = parseSearchResponse(data, searchType, query);
+    const results = await this.searchWeb(query, searchType, projects, maxResults, start, fileType);
 
     this.searchCache?.set(cacheKey, results, estimateBytes(results));
     return results;
   }
 
   /**
-   * Fall back to the web search UI endpoint (/search?defs=X) when the REST
-   * API does not support a particular search field (e.g., defs/refs on
-   * OpenGrok 1.7.x). Parses the HTML response to extract results.
+   * Search exclusively through the OpenGrok Web UI. The customized internal
+   * deployment does not expose a reliable REST API surface.
    */
   private async searchWeb(
     query: string,
     searchType: SearchTypeValue,
     projects?: string[],
     maxResults: number = 25,
+    start: number = 0,
     fileType?: string
   ): Promise<SearchResults> {
     // Web UI requires at least one project — use explicit list, or fall back to
@@ -713,6 +659,7 @@ export class OpenGrokClient {
     const url = buildSafeUrl(this.baseUrl, "search");
     url.searchParams.set(searchType, query);
     url.searchParams.set("n", String(maxResults));
+    if (start > 0) url.searchParams.set("start", String(start));
     for (const p of effectiveProjects) {
       url.searchParams.append("project", p);
     }
@@ -751,47 +698,6 @@ export class OpenGrokClient {
     return parseWebSearchResults(html, searchType, query);
   }
 
-  async searchPattern(opts: {
-    pattern: string;
-    projects?: string[];
-    fileType?: string;
-    maxResults?: number;
-  }): Promise<SearchResults> {
-    const { pattern, projects, fileType, maxResults = 20 } = opts;
-    const url = buildSafeUrl(this.baseUrl, `${this.apiPath}/search`);
-    url.searchParams.set("full", pattern);
-    url.searchParams.set("regexp", "true");
-    url.searchParams.set("maxresults", String(maxResults));
-    for (const project of [...(projects ?? [])].sort()) url.searchParams.append("projects", project);
-    if (fileType) {
-      url.searchParams.set("type", fileType);
-    }
-
-    const response = await this.request(url, TIMEOUTS.search, "application/json");
-    const data = (await response.json()) as Record<string, unknown>;
-    return parseSearchResponse(data, "full", pattern);
-  }
-
-  async suggest(
-    query: string,
-    project?: string,
-    field: string = "full"
-  ): Promise<{ suggestions: string[]; time: number; partialResult: boolean }> {
-    const url = buildSafeUrl(this.baseUrl, `${this.apiPath}/suggest`);
-    url.searchParams.set(field, query);
-    url.searchParams.set("field", field);
-    url.searchParams.set("caret", String(query.length));
-    if (project) url.searchParams.set("projects", project);
-
-    const response = await this.request(url, TIMEOUTS.suggest, "application/json");
-    const data = (await response.json()) as Record<string, unknown>;
-    return {
-      suggestions: (data["suggestions"] as string[]) ?? [],
-      time: (data["time"] as number) ?? 0,
-      partialResult: (data["partialResult"] as boolean) ?? false,
-    };
-  }
-
   async getFileContent(
     project: string,
     path: string,
@@ -828,96 +734,6 @@ export class OpenGrokClient {
     };
   }
 
-  async getFileHistory(
-    project: string,
-    path: string,
-    maxEntries: number = 10
-  ): Promise<FileHistory> {
-    assertSafePath(path);
-    const normalizedPath = path.replace(/^\/+/, "");
-    // Cache key intentionally omits maxEntries. Correctness relies on the upstream
-    // OpenGrok API returning the full history list in a single response (no server-side
-    // pagination applied to the history endpoint). If the API returns exactly N entries
-    // on the first call, a subsequent caller requesting >N entries will silently receive
-    // N with no truncation indicator. This is an accepted trade-off: the cache stores
-    // the full API response and slices to the requested length on retrieval.
-    // If the upstream API begins paginating, add maxEntries to the cache key to
-    // prevent silent under-delivery.
-    const cacheKey = `${project}:${normalizedPath}`;
-
-    let history = this.historyCache?.get(cacheKey);
-    if (!history) {
-      const url = buildSafeUrl(
-        this.baseUrl,
-        `history/${encodeURIComponent(project)}/${normalizedPath}`
-      );
-      const response = await this.request(url, TIMEOUTS.default, "text/html, */*");
-      const html = await response.text();
-      history = parseFileHistory(html, project, normalizedPath);
-      this.historyCache?.set(cacheKey, history, estimateBytes(history));
-    }
-
-    if (history.entries.length > maxEntries) {
-      return {
-        ...history,
-        entries: history.entries.slice(0, maxEntries),
-      };
-    }
-    return history;
-  }
-
-  async getAnnotate(project: string, path: string): Promise<AnnotatedFile> {
-    assertSafePath(path);
-    const normalizedPath = path.replace(/^\/+/, "");
-    const cacheKey = `annotate:${project}:${normalizedPath}`;
-
-    /* v8 ignore next -- cache hit path */
-    const cachedJson = this.fileCache?.get(cacheKey);
-    if (cachedJson !== undefined) {
-      return JSON.parse(cachedJson) as AnnotatedFile;
-    }
-
-    // Use cached endpoint style if known, otherwise probe
-    /* v8 ignore start */
-    if (this.annotateEndpoint !== 'xref') {
-    /* v8 ignore stop */
-      try {
-        const annotateUrl = buildSafeUrl(
-          this.baseUrl,
-          `annotate/${encodeURIComponent(project)}/${normalizedPath}`
-        );
-        const response = await this.request(annotateUrl, TIMEOUTS.file, "text/html, */*");
-        const html = await response.text();
-        this.annotateEndpoint = 'annotate';
-        const result = parseAnnotate(html, project, normalizedPath);
-        /* v8 ignore next -- cache set */
-        this.fileCache?.set(cacheKey, JSON.stringify(result), estimateBytes(result));
-        return result;
-      } catch {
-        /* v8 ignore start -- tested via fetch spy in client-internals; V8 coverage merge issue */
-        if (this.annotateEndpoint === 'annotate') {
-          // Cached style failed — reset and try fallback
-          this.annotateEndpoint = null;
-        }
-        /* v8 ignore stop */
-      }
-    }
-
-    /* v8 ignore start -- xref annotate fallback; tested in client-extended but V8 can't track through spy */
-    const xrefUrl = buildSafeUrl(
-      this.baseUrl,
-      `xref/${encodeURIComponent(project)}/${normalizedPath}`
-    );
-    xrefUrl.searchParams.set("a", "true");
-    const response = await this.request(xrefUrl, TIMEOUTS.file, "text/html, */*");
-    const html = await response.text();
-    this.annotateEndpoint = 'xref';
-    const result = parseAnnotate(html, project, normalizedPath);
-    this.fileCache?.set(cacheKey, JSON.stringify(result), estimateBytes(result));
-    return result;
-    /* v8 ignore stop */
-  }
-
   async getFileSymbols(project: string, path: string): Promise<FileSymbols> {
     assertSafePath(path);
     const normalizedPath = path.replace(/^\/+/, "");
@@ -928,40 +744,16 @@ export class OpenGrokClient {
       return JSON.parse(cached) as FileSymbols;
     }
     /* v8 ignore stop */
-    const url = buildSafeUrl(this.baseUrl, `${this.apiPath}/file/defs`);
-    url.searchParams.set("path", "/" + normalizedPath);
     try {
-      const response = await this.request(url, TIMEOUTS.file, "application/json");
-      const data = (await response.json()) as FileSymbol[];
-      const result: FileSymbols = {
-        project,
-        path: normalizedPath,
-        symbols: /* v8 ignore next -- defense-in-depth: API always returns array */ Array.isArray(data) ? data : [],
-      };
+      const xrefUrl = buildSafeUrl(this.baseUrl, `xref/${encodeURIComponent(project)}/${normalizedPath}`);
+      const response = await this.request(xrefUrl, TIMEOUTS.file, "text/html, */*");
+      const symbols = parseFileSymbols(await response.text());
+      const result: FileSymbols = { project, path: normalizedPath, symbols };
       const json = JSON.stringify(result);
-      /* v8 ignore next -- cache set; tested but V8 doesn't track */
       this.fileCache?.set(cacheKey, json, Buffer.byteLength(json, "utf8"));
       return result;
     } catch {
-      // /api/v1/file/defs may not exist or may return 401 — fall back to
-      // parsing intelliWindow-symbol links from the xref HTML page.
-      /* v8 ignore start -- tested in client-extended (xref fallback + double failure); V8 can't track through pRetry spy */
-      try {
-        const xrefUrl = buildSafeUrl(
-          this.baseUrl,
-          `xref/${encodeURIComponent(project)}/${normalizedPath}`
-        );
-        const response = await this.request(xrefUrl, TIMEOUTS.file, "text/html, */*");
-        const html = await response.text();
-        const symbols = parseFileSymbols(html);
-        const result: FileSymbols = { project, path: normalizedPath, symbols };
-        const json = JSON.stringify(result);
-        this.fileCache?.set(cacheKey, json, Buffer.byteLength(json, "utf8"));
-        return result;
-      } catch {
-        return { project, path: normalizedPath, symbols: [] };
-      }
-      /* v8 ignore stop */
+      return { project, path: normalizedPath, symbols: [] };
     }
   }
 
@@ -1030,47 +822,6 @@ export class OpenGrokClient {
   }
 
   /**
-   * Get call graph for a symbol (API v2 only, with v1 fallback).
-   * v2 endpoint: GET /api/v2/symbol/{symbol}/callgraph?project={project}
-   * v1 fallback: search for refs to construct a basic dependency view
-   */
-  async getCallGraph(
-    project: string,
-    symbol: string
-  ): Promise<SearchResults> {
-    if (!project.trim()) throw new Error("project must not be empty");
-    if (!symbol.trim()) throw new Error("symbol must not be empty");
-
-    // If v2 API is configured, try the dedicated endpoint
-    if (this.config.OPENGROK_API_VERSION === "v2") {
-      try {
-        const url = buildSafeUrl(
-          this.baseUrl,
-          this.apiPath,
-          "symbol",
-          encodeURIComponent(symbol),
-          "callgraph"
-        );
-        url.searchParams.set("project", project);
-        const response = await this.request(url, TIMEOUTS.search, "application/json");
-        const data = (await response.json()) as Record<string, unknown>;
-        // Only use the v2 response if it matches the expected search-results shape.
-        // A call-graph response has a different structure and would parse as empty results
-        // without throwing, blocking the v1 fallback.
-        if (data && typeof data === "object" && "results" in data) {
-          return parseSearchResponse(data, "refs", symbol);
-        }
-        // Response format doesn't match — fall through to v1
-      } catch {
-        // Fall through to v1 fallback on any error
-      }
-    }
-
-    // Fallback: search for symbol refs (v1 compatible)
-    return this.search(symbol, "refs", [project]);
-  }
-
-  /**
    * Fire-and-forget cache pre-warming. Called after successful health check.
    * Warms up the TTL cache with project list + one minimal defs search.
    * Best-effort only; errors are silently ignored.
@@ -1078,25 +829,6 @@ export class OpenGrokClient {
   warmCache(): void {
     void this.listProjects().catch(() => undefined);
     void this.search("main", "defs", undefined, 1).catch(() => undefined);
-  }
-
-  async getFileDiff(
-    project: string,
-    path: string,
-    rev1: string,
-    rev2: string,
-  ): Promise<FileDiff> {
-    assertSafePath(path);
-    const normalizedPath = path.replace(/^\/+/, "");
-    const url = buildSafeUrl(this.baseUrl, `diff/${encodeURIComponent(project)}/${normalizedPath}`);
-    // r1/r2 use the OpenGrok convention: /{project}/{path}@{revision}
-    url.searchParams.set("r1", `/${project}/${normalizedPath}@${rev1}`);
-    url.searchParams.set("r2", `/${project}/${normalizedPath}@${rev2}`);
-    // format=u returns unified diff as HTML with context lines
-    url.searchParams.set("format", "u");
-    const response = await this.request(url, TIMEOUTS.file, "text/html, */*");
-    const html = await response.text();
-    return parseFileDiff(html, project, normalizedPath, rev1, rev2);
   }
 
   getBaseUrl(): string {
@@ -1110,7 +842,6 @@ export class OpenGrokClient {
     } finally {
       this.searchCache?.clear();
       this.fileCache?.clear();
-      this.historyCache?.clear();
       this.projectsCache?.clear();
     }
   }

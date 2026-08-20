@@ -563,14 +563,12 @@ class OpenGrokMcpProvider implements vscode.McpServerDefinitionProvider {
         const baseUrl = config.get<string>('baseUrl') || '';
         const verifySsl = config.get<boolean>('verifySsl') ?? true;
         const proxy = config.get<string>('proxy');
-        const apiVersion = config.get<string>('apiVersion') || 'v1';
         const enableElicitation = config.get<boolean>('enableElicitation') ?? false;
 
         const env: Record<string, string> = {
             OPENGROK_BASE_URL: baseUrl,
             OPENGROK_USERNAME: username,
             OPENGROK_VERIFY_SSL: verifySsl ? 'true' : 'false',
-            OPENGROK_API_VERSION: apiVersion,
             OPENGROK_ENABLE_ELICITATION: enableElicitation ? 'true' : 'false',
         };
 
@@ -729,13 +727,13 @@ function openConfigurationPanel(context: vscode.ExtensionContext): void {
                         await _sendCurrentConfig(configPanel.webview);
                         break;
                     case 'testConnection':
-                        await _handleTestConnection(configPanel.webview, message.data as { baseUrl: string; username: string; password: string; verifySsl: boolean; proxy?: string; apiVersion?: string });
+                        await _handleTestConnection(configPanel.webview, message.data as { baseUrl: string; username: string; password: string; verifySsl: boolean; proxy?: string });
                         break;
                     case 'silentTestConnection':
                         await testConnection(true);
                         break;
                     case 'saveConfiguration':
-                        await _handleSaveConfiguration(configPanel.webview, message.data as { baseUrl: string; username: string; password?: string; proxy?: string; verifySsl: boolean; defaultProject?: string; contextBudget?: string; responseFormatOverride?: string; codeMode?: boolean; memoryBankDir?: string; compileDbPaths?: string; codeModeChanged?: boolean; apiVersion?: string; enableElicitation?: boolean; enableFilesApi?: boolean; samplingModel?: string; samplingMaxTokens?: number; auditLogFile?: string; rateLimitRpm?: number });
+                        await _handleSaveConfiguration(configPanel.webview, message.data as { baseUrl: string; username: string; password?: string; proxy?: string; verifySsl: boolean; defaultProject?: string; contextBudget?: string; responseFormatOverride?: string; codeMode?: boolean; memoryBankDir?: string; compileDbPaths?: string; codeModeChanged?: boolean; enableElicitation?: boolean; enableFilesApi?: boolean; samplingModel?: string; samplingMaxTokens?: number; auditLogFile?: string; rateLimitRpm?: number });
                         break;
                 }
             } catch (error: unknown) {
@@ -769,7 +767,6 @@ async function _sendCurrentConfig(webview: vscode.Webview): Promise<void> {
     const codeMode = config.get<boolean>('codeMode') ?? true;
     const memoryBankDir = config.get<string>('memoryBankDir') || '';
     const compileDbPaths = config.get<string>('compileDbPaths') || '';
-    const apiVersion = config.get<string>('apiVersion') || 'v1';
     const enableElicitation = config.get<boolean>('enableElicitation') ?? false;
     const enableFilesApi = config.get<boolean>('enableFilesApi') ?? false;
     const enableSampling = config.get<boolean>('enableSampling') ?? false;
@@ -790,11 +787,11 @@ async function _sendCurrentConfig(webview: vscode.Webview): Promise<void> {
 
     webview.postMessage({
         type: 'loadConfig',
-        config: { baseUrl, username, verifySsl, proxy, hasPassword, defaultProject, contextBudget, responseFormatOverride, codeMode, memoryBankDir, compileDbPaths, apiVersion, enableElicitation, enableFilesApi, enableSampling, samplingModel, samplingMaxTokens, auditLogFile, rateLimitRpm, timeout, defaultMaxResults, enableObservationMasker, observationMaskerTurns }
+        config: { baseUrl, username, verifySsl, proxy, hasPassword, defaultProject, contextBudget, responseFormatOverride, codeMode, memoryBankDir, compileDbPaths, enableElicitation, enableFilesApi, enableSampling, samplingModel, samplingMaxTokens, auditLogFile, rateLimitRpm, timeout, defaultMaxResults, enableObservationMasker, observationMaskerTurns }
     });
 }
 
-async function _handleTestConnection(webview: vscode.Webview, data: { baseUrl: string; username: string; password: string; verifySsl: boolean; proxy?: string; apiVersion?: string }): Promise<void> {
+async function _handleTestConnection(webview: vscode.Webview, data: { baseUrl: string; username: string; password: string; verifySsl: boolean; proxy?: string }): Promise<void> {
     let passwordToUse = data.password;
 
     // When the webview password field is empty, retrieve the saved password from secretStorage
@@ -808,11 +805,9 @@ async function _handleTestConnection(webview: vscode.Webview, data: { baseUrl: s
         }
     }
 
-    // Use apiVersion from webview if provided, otherwise fall back to saved setting
-    const apiVersion = data.apiVersion || vscode.workspace.getConfiguration('opengrok-mcp').get<string>('apiVersion') || 'v1';
     await handleWebviewTestConnection(
         (msg: Record<string, unknown>) => { void webview.postMessage(msg); },
-        { ...data, password: passwordToUse, apiVersion }
+        { ...data, password: passwordToUse }
     );
 }
 
@@ -829,7 +824,6 @@ async function _handleSaveConfiguration(webview: vscode.Webview, data: {
     memoryBankDir?: string;
     compileDbPaths?: string;
     codeModeChanged?: boolean;
-    apiVersion?: string;
     enableElicitation?: boolean;
     enableFilesApi?: boolean;
     enableSampling?: boolean;
@@ -850,7 +844,7 @@ async function _handleSaveConfiguration(webview: vscode.Webview, data: {
 
 async function handleWebviewTestConnection(
     postMessage: (msg: Record<string, unknown>) => void,
-    data: { baseUrl: string; username: string; password: string; verifySsl: boolean; proxy?: string; apiVersion?: string }
+    data: { baseUrl: string; username: string; password: string; verifySsl: boolean; proxy?: string }
 ): Promise<void> {
     const { baseUrl, username, password, verifySsl } = data;
 
@@ -901,7 +895,6 @@ async function handleSaveConfiguration(
         memoryBankDir?: string;
         compileDbPaths?: string;
         codeModeChanged?: boolean;
-        apiVersion?: string;
         enableElicitation?: boolean;
         enableFilesApi?: boolean;
         enableSampling?: boolean;
@@ -915,7 +908,7 @@ async function handleSaveConfiguration(
         observationMaskerTurns?: number;
     }
 ): Promise<void> {
-    const { baseUrl, username, password, proxy, verifySsl, defaultProject, contextBudget, responseFormatOverride, codeMode, memoryBankDir, compileDbPaths, codeModeChanged, apiVersion, enableElicitation,
+    const { baseUrl, username, password, proxy, verifySsl, defaultProject, contextBudget, responseFormatOverride, codeMode, memoryBankDir, compileDbPaths, codeModeChanged, enableElicitation,
             enableFilesApi, enableSampling, samplingModel, samplingMaxTokens, auditLogFile, rateLimitRpm,
             timeout, defaultMaxResults, enableObservationMasker, observationMaskerTurns } = data;
 
@@ -967,7 +960,6 @@ async function handleSaveConfiguration(
     if (codeMode !== undefined)             updates.push(config.update('codeMode', codeMode, G));
     if (memoryBankDir !== undefined)        updates.push(config.update('memoryBankDir', memoryBankDir || undefined, G));
     if (compileDbPaths !== undefined)       updates.push(config.update('compileDbPaths', compileDbPaths || undefined, G));
-    if (apiVersion !== undefined)           updates.push(config.update('apiVersion', apiVersion || 'v1', G));
     if (enableElicitation !== undefined)    updates.push(config.update('enableElicitation', enableElicitation, G));
     if (enableFilesApi !== undefined)       updates.push(config.update('enableFilesApi', enableFilesApi, G));
     if (enableSampling !== undefined)       updates.push(config.update('enableSampling', enableSampling, G));

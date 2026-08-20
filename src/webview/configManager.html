@@ -320,13 +320,6 @@
                     <div class="hint">Route requests through a proxy. Credentials are forwarded — use only with trusted proxies.</div>
                 </div>
                 <div class="field">
-                    <label for="apiVersion">OpenGrok REST API Version</label>
-                    <select id="apiVersion">
-                        <option value="v1">v1 &mdash; Compatible with all OpenGrok versions (default)</option>
-                        <option value="v2">v2 &mdash; Required for call graph features (OpenGrok 1.12+)</option>
-                    </select>
-                </div>
-                <div class="field">
                     <label for="responseFormatOverride">AI Response Format</label>
                     <select id="responseFormatOverride">
                         <option value="">Auto &mdash; let each tool choose the best format</option>
@@ -501,7 +494,6 @@
             var password = document.getElementById('password').value;
             var verifySsl = document.getElementById('verifySsl').checked;
             var proxy = document.getElementById('proxy').value.trim();
-            var apiVersion = document.getElementById('apiVersion').value;
 
             if (!baseUrl) { showToast('error', 'URL is required'); return; }
             // Password only required when a username is set (anonymous access is allowed)
@@ -511,7 +503,7 @@
             setStatusBar('info', 'Testing connection…');
 
             // Always send testConnection — the extension looks up saved password if field is empty
-            vscode.postMessage({ type: 'testConnection', data: { baseUrl: baseUrl, username: username, password: password, proxy: proxy, verifySsl: verifySsl, apiVersion: apiVersion } });
+            vscode.postMessage({ type: 'testConnection', data: { baseUrl: baseUrl, username: username, password: password, proxy: proxy, verifySsl: verifySsl } });
         }
 
         function saveConfiguration() {
@@ -523,7 +515,6 @@
             var defaultProject = document.getElementById('defaultProject').value.trim();
             var contextBudget = document.getElementById('contextBudget').value;
             var responseFormatOverride = document.getElementById('responseFormatOverride').value;
-            var apiVersion = document.getElementById('apiVersion').value;
             var codeMode = document.getElementById('codeMode').checked;
             var memoryBankDir = document.getElementById('memoryBankDir').value.trim();
             var compileDbPaths = document.getElementById('compileDbPaths').value.trim();
@@ -553,7 +544,7 @@
             clearStatusBar();
             vscode.postMessage({
                 type: 'saveConfiguration',
-                data: { baseUrl: baseUrl, username: username, password: password, proxy: proxy, verifySsl: verifySsl, defaultProject: defaultProject, contextBudget: contextBudget, responseFormatOverride: responseFormatOverride, apiVersion: apiVersion, codeMode: codeMode, memoryBankDir: memoryBankDir, compileDbPaths: compileDbPaths, codeModeChanged: codeModeChanged, enableElicitation: enableElicitation, enableFilesApi: enableFilesApi, enableSampling: enableSampling, samplingModel: samplingModel, samplingMaxTokens: samplingMaxTokens, auditLogFile: auditLogFile, rateLimitRpm: rateLimitRpm, timeout: timeout, defaultMaxResults: defaultMaxResults, enableObservationMasker: enableObservationMasker, observationMaskerTurns: observationMaskerTurns }
+                data: { baseUrl: baseUrl, username: username, password: password, proxy: proxy, verifySsl: verifySsl, defaultProject: defaultProject, contextBudget: contextBudget, responseFormatOverride: responseFormatOverride, codeMode: codeMode, memoryBankDir: memoryBankDir, compileDbPaths: compileDbPaths, codeModeChanged: codeModeChanged, enableElicitation: enableElicitation, enableFilesApi: enableFilesApi, enableSampling: enableSampling, samplingModel: samplingModel, samplingMaxTokens: samplingMaxTokens, auditLogFile: auditLogFile, rateLimitRpm: rateLimitRpm, timeout: timeout, defaultMaxResults: defaultMaxResults, enableObservationMasker: enableObservationMasker, observationMaskerTurns: observationMaskerTurns }
             });
         }
 
@@ -570,7 +561,6 @@
                     document.getElementById('verifySsl').checked = currentConfig.verifySsl !== false;
                     document.getElementById('contextBudget').value = currentConfig.contextBudget || 'standard';
                     document.getElementById('responseFormatOverride').value = currentConfig.responseFormatOverride || '';
-                    document.getElementById('apiVersion').value = currentConfig.apiVersion || 'v1';
                     document.getElementById('codeMode').checked = currentConfig.codeMode !== false;
                     document.getElementById('memoryBankDir').value = currentConfig.memoryBankDir || '';
                     document.getElementById('compileDbPaths').value = currentConfig.compileDbPaths || '';
@@ -614,7 +604,6 @@
                     }
 
                     var hasAdvanced = (currentConfig.proxy || currentConfig.responseFormatOverride ||
-                        (currentConfig.apiVersion && currentConfig.apiVersion !== 'v1') ||
                         currentConfig.memoryBankDir || currentConfig.compileDbPaths ||
                         currentConfig.enableFilesApi || currentConfig.enableSampling === true ||
                         currentConfig.samplingModel ||

@@ -78,18 +78,6 @@
           ]
         },
         {
-          "name": "OPENGROK_API_VERSION",
-          "description": "OpenGrok REST API version. Use v2 for call graph features (requires OpenGrok 1.12+).",
-          "format": "string",
-          "isRequired": false,
-          "isSecret": false,
-          "default": "v1",
-          "choices": [
-            "v1",
-            "v2"
-          ]
-        },
-        {
           "name": "HTTP_PROXY",
           "description": "HTTP/HTTPS proxy URL for all OpenGrok API requests (e.g. http://proxy.company.com:8080). Also set as HTTPS_PROXY.",
           "format": "string",

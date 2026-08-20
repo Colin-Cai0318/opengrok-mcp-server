@@ -100,7 +100,6 @@ Manages credentials (VS Code SecretStorage + encrypted temp files), registers th
 | `OPENGROK_RESPONSE_FORMAT_OVERRIDE` | Force `markdown`, `json`, `tsv`, `toon`, `yaml`, or `text` for all tool responses |
 | `OPENGROK_LOCAL_COMPILE_DB_PATHS` | Comma-separated paths to `compile_commands.json` |
 | `OPENGROK_ENABLE_CACHE_HINTS` | `true`/`false` — prompt caching infrastructure flag |
-| `OPENGROK_API_VERSION` | `v1` (default) / `v2` — OpenGrok REST API version |
 | `OPENGROK_HTTP_PORT` | Port for Streamable HTTP transport (alongside stdio) |
 | `OPENGROK_HTTP_MAX_SESSIONS` | Max concurrent HTTP sessions (default: 100) |
 | `OPENGROK_HTTP_AUTH_TOKEN` | Static Bearer token for HTTP endpoint |

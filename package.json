@@ -64,6 +64,7 @@
     "out/server/",
     "out/webview/",
     "images/",
+    "docs/",
     "README.md",
     "LICENSE"
   ],
@@ -156,20 +157,6 @@
           "default": "",
           "markdownDescription": "Route requests through an HTTP proxy (e.g. `http://proxy.company.com:8080`). Credentials are forwarded — use only with trusted proxies. Leave blank for direct connection.",
           "order": 8
-        },
-        "opengrok-mcp.apiVersion": {
-          "type": "string",
-          "enum": [
-            "v1",
-            "v2"
-          ],
-          "enumDescriptions": [
-            "v1 — Compatible with all OpenGrok versions (default)",
-            "v2 — Required for call graph features (OpenGrok 1.12+)"
-          ],
-          "default": "v1",
-          "markdownDescription": "OpenGrok REST API version. v1 works with all versions. Select v2 only for call graph features (requires OpenGrok 1.12+).",
-          "order": 9
         },
         "opengrok-mcp.responseFormatOverride": {
           "type": "string",
@@ -287,6 +274,9 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "test": "vitest run",
+    "test:internal": "node docs/opengrok-web-only-regression.mjs",
+    "test:web-only": "vitest run src/tests/web-only-tool-surface.test.ts src/tests/web-compat.test.ts",
+    "verify:web-only": "npm run compile && npm run typecheck && npm run test:web-only",
     "test:sandbox": "npm run compile && vitest run --config vitest.sandbox.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

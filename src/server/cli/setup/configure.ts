@@ -16,7 +16,6 @@ export interface McpConfig {
   defaultProject?: string;
   enableElicitation?: boolean;
   proxy?: string;
-  apiVersion?: string;
   responseFormatOverride?: string;
   memoryBankDir?: string;
   compileDbPaths?: string;
@@ -46,7 +45,6 @@ export function buildEnv(config: McpConfig): Record<string, string> {
     env['HTTP_PROXY'] = config.proxy;
     env['HTTPS_PROXY'] = config.proxy;
   }
-  if (config.apiVersion && config.apiVersion !== 'v1')    env['OPENGROK_API_VERSION'] = config.apiVersion;
   if (config.responseFormatOverride)                       env['OPENGROK_RESPONSE_FORMAT_OVERRIDE'] = config.responseFormatOverride;
   if (config.memoryBankDir)                                env['OPENGROK_MEMORY_BANK_DIR'] = config.memoryBankDir;
   if (config.compileDbPaths)                               env['OPENGROK_LOCAL_COMPILE_DB_PATHS'] = config.compileDbPaths;

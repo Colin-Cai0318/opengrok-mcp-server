@@ -98,7 +98,7 @@ async function runJob(
   }
 
   // ---------------------------------------------------------------------------
-  // env.opengrok — 16 methods, all wired through callHostSync
+  // env.opengrok — active Web-compatible methods, all wired through callHostSync
   // ---------------------------------------------------------------------------
 
   const makeMethod = (name: string) =>
@@ -111,18 +111,12 @@ async function runJob(
       getFileContent:   makeMethod("getFileContent"),
       getSymbolContext: makeMethod("getSymbolContext"),
       getFileSymbols:   makeMethod("getFileSymbols"),
-      getFileHistory:   makeMethod("getFileHistory"),
-      getFileAnnotate:  makeMethod("getFileAnnotate"),
       browseDir:        makeMethod("browseDir"),
       findFile:         makeMethod("findFile"),
-      getFileOverview:  makeMethod("getFileOverview"),
-      traceCallChain:   makeMethod("traceCallChain"),
-      searchSuggest:    makeMethod("searchSuggest"),
       getCompileInfo:   makeMethod("getCompileInfo"),
       indexHealth:      makeMethod("indexHealth"),
       readMemory:       makeMethod("readMemory"),
       writeMemory:      makeMethod("writeMemory"),
-      getFileDiff:      makeMethod("getFileDiff"),
       elicit:           makeMethod("elicit"),
       sample:           makeMethod("sample"),
     },
