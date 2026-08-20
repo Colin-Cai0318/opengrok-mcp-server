@@ -47,12 +47,12 @@ Code Mode（`OPENGROK_CODE_MODE=true`）仅暴露 5 个 MCP 工具：
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 npm ci --include=dev
-npm run compile
-npm run typecheck
-npx vitest run src/tests/web-only-tool-surface.test.ts src/tests/web-compat.test.ts
+npm run verify:web-only
 ```
 
 `Cannot find module 'esbuild'` 表示尚未安装开发依赖，而不是编译源码失败。执行上述 `npm ci --include=dev` 后再运行编译即可。Node.js 22 已满足本项目要求。
+
+`verify:web-only` 依次执行构建、TypeScript 类型检查和 Web-only 静态回归（8 项）。
 
 Cookie 认证示例（Cookie 不会写入终端输出或 JSON 报告）：
 

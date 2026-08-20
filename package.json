@@ -275,6 +275,8 @@
     "package": "node esbuild.js --production",
     "test": "vitest run",
     "test:internal": "node docs/opengrok-web-only-regression.mjs",
+    "test:web-only": "vitest run src/tests/web-only-tool-surface.test.ts src/tests/web-compat.test.ts",
+    "verify:web-only": "npm run compile && npm run typecheck && npm run test:web-only",
     "test:sandbox": "npm run compile && vitest run --config vitest.sandbox.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
