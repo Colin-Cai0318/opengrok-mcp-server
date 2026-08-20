@@ -64,8 +64,7 @@
     "out/server/",
     "out/webview/",
     "images/",
-    "scripts/opengrok-web-only-regression.mjs",
-    "INTERNAL_WEB_ONLY_TESTING.md",
+    "docs/",
     "README.md",
     "LICENSE"
   ],
@@ -275,7 +274,7 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "test": "vitest run",
-    "test:internal": "node scripts/opengrok-web-only-regression.mjs",
+    "test:internal": "node docs/opengrok-web-only-regression.mjs",
     "test:sandbox": "npm run compile && vitest run --config vitest.sandbox.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

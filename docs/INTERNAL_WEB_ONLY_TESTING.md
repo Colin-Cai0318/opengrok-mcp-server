@@ -42,12 +42,17 @@ Code Mode（`OPENGROK_CODE_MODE=true`）仅暴露 5 个 MCP 工具：
 
 ## 全量回归脚本
 
-先构建：
+在仓库根目录安装开发依赖并执行静态检查。不要使用固定的 `/home/docker/.../opengrok-mcp-server-main` 路径；当前 checkout 名称可能带分支后缀。
 
 ```bash
-npm ci
+cd "$(git rev-parse --show-toplevel)"
+npm ci --include=dev
 npm run compile
+npm run typecheck
+npx vitest run src/tests/web-only-tool-surface.test.ts src/tests/web-compat.test.ts
 ```
+
+`Cannot find module 'esbuild'` 表示尚未安装开发依赖，而不是编译源码失败。执行上述 `npm ci --include=dev` 后再运行编译即可。Node.js 22 已满足本项目要求。
 
 Cookie 认证示例（Cookie 不会写入终端输出或 JSON 报告）：
 

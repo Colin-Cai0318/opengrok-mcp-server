@@ -53,7 +53,7 @@ const REMOVED_TOOLS = [
 
 function usage() {
   console.log(`Usage:
-  node scripts/opengrok-web-only-regression.mjs --base-url URL --projects P1[,P2] [options]
+  node docs/opengrok-web-only-regression.mjs --base-url URL --projects P1[,P2] [options]
 
 Required:
   --base-url URL          OpenGrok context root, e.g. https://host/opengrok/
