@@ -48,23 +48,18 @@
     "onCommand:opengrok-mcp.checkUpdate",
     "onCommand:opengrok-mcp.showLogs"
   ],
-  "main": "./out/extension.js",
-  "types": "./out/server/main.d.ts",
+  "main": "./out/server/main.js",
   "exports": {
-    ".": {
-      "types": "./out/server/main.d.ts",
-      "default": "./out/server/main.js"
-    }
+    ".": "./out/server/main.js"
   },
   "bin": {
     "opengrok-mcp": "./out/server/main.js",
     "opengrok-mcp-server": "./out/server/main.js"
   },
   "files": [
-    "out/server/",
-    "out/webview/",
-    "images/",
-    "docs/",
+    "out/server/main.js",
+    "out/server/sandbox-worker.js",
+    "out/server/emscripten-module.wasm",
     "README.md",
     "LICENSE"
   ],
