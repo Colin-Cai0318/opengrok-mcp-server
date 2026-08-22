@@ -10,7 +10,7 @@
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Colin-Cai0318/opengrok-mcp-server"
+    "url": "git+https://github.com/Colin-Cai0318/opengrok-mcp-server.git"
   },
   "publishConfig": {
     "access": "public"
@@ -53,8 +53,8 @@
     ".": "./out/server/main.js"
   },
   "bin": {
-    "opengrok-mcp": "./out/server/main.js",
-    "opengrok-mcp-server": "./out/server/main.js"
+    "opengrok-mcp": "out/server/main.js",
+    "opengrok-mcp-server": "out/server/main.js"
   },
   "files": [
     "out/server/main.js",
