@@ -208,9 +208,9 @@ describe('compactDescriptions — budget-driven tool description selection', () 
     const server = createServer(client as never, config);
 
     const internal = (server as unknown as ServerInternal)._registeredTools;
-    // opengrok_search_code full description is the verbose form
+    // Full description preserves the exact-project contract.
     const desc = internal['opengrok_search_code']?.description ?? '';
-    expect(desc).toContain('Full-text or symbol search across one or all OpenGrok projects');
+    expect(desc).toContain('exact OpenGrok projects');
   });
 
   it('uses full descriptions when OPENGROK_CONTEXT_BUDGET=generous and Code Mode is OFF', () => {
@@ -220,6 +220,6 @@ describe('compactDescriptions — budget-driven tool description selection', () 
 
     const internal = (server as unknown as ServerInternal)._registeredTools;
     const desc = internal['opengrok_search_code']?.description ?? '';
-    expect(desc).toContain('Full-text or symbol search across one or all OpenGrok projects');
+    expect(desc).toContain('exact OpenGrok projects');
   });
 });

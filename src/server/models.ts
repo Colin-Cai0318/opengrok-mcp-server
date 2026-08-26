@@ -33,50 +33,50 @@ export type SearchTypeValue = (typeof SearchType)[keyof typeof SearchType];
 // Tool argument schemas (used for input validation in server.ts)
 // ---------------------------------------------------------------------------
 
-const FILE_TYPE_DESC = "Filter by language: c, cxx (C++), java, python, javascript, typescript, csharp, golang, ruby, perl, php, scala, kotlin, swift, rust, sql, xml, json, yaml, shell, makefile, etc.";
+const FILE_TYPE_DESC = "Language analyzer filter, e.g. cxx, c, java, kotlin, python, typescript.";
 
 export const SearchCodeArgs = z.object({
-  query: z.string().min(1, "query must not be empty").describe('Search query. Supports OpenGrok syntax: +required -excluded "exact phrase"'),
-  search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
-  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured; otherwise ask the user."),
-  max_results: z.number().int().min(1).max(100).default(10),
-  start_index: z.number().int().min(0).default(0),
+  query: z.string().min(1, "query must not be empty").describe('Required search text; supports +required, -excluded, and "exact phrase".'),
+  search_type: z.enum(["full", "defs", "refs", "path"]).default("full").describe("full text, defs definitions, refs references, or path filenames."),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact project names from the startup catalog; omit only with a default project."),
+  max_results: z.number().int().min(1).max(100).default(10).describe("Maximum results to return (1-100; default 10)."),
+  start_index: z.number().int().min(0).default(0).describe("Zero-based result offset for pagination (default 0)."),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
   response_format: RESPONSE_FORMAT,
 });
 
 export const FindFileArgs = z.object({
-  path_pattern: z.string().min(1, "path_pattern must not be empty").describe("Path pattern (e.g., config.ts, test*.js)"),
-  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
-  max_results: z.number().int().min(1).max(100).default(10),
-  start_index: z.number().int().min(0).default(0),
+  path_pattern: z.string().min(1, "path_pattern must not be empty").describe("Required file name, path substring, or glob, e.g. test*.java."),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact project names from the startup catalog; omit only with a default project."),
+  max_results: z.number().int().min(1).max(100).default(10).describe("Maximum matching paths to return (1-100; default 10)."),
+  start_index: z.number().int().min(0).default(0).describe("Zero-based result offset for pagination (default 0)."),
   response_format: RESPONSE_FORMAT,
 });
 
 export const GetFileContentArgs = z.object({
-  project: z.string().min(1, "project must not be empty").describe("Exact OpenGrok project name. Required and must not be empty; ask the user if unknown."),
-  path: z.string().min(1),
-  start_line: z.number().int().min(1).optional().describe("Start line (1-indexed)"),
-  end_line: z.number().int().min(1).optional().describe("End line (1-indexed)"),
+  project: z.string().min(1, "project must not be empty").describe("Required exact project name from startup catalog or a prior result."),
+  path: z.string().min(1).describe("Required project-relative file path from search or directory results."),
+  start_line: z.number().int().min(1).optional().describe("Optional first line, 1-indexed and inclusive."),
+  end_line: z.number().int().min(1).optional().describe("Optional last line, 1-indexed and inclusive."),
   response_format: RESPONSE_FORMAT,
 });
 
 export const BrowseDirectoryArgs = z.object({
-  project: z.string().min(1, "project must not be empty").describe("Exact OpenGrok project name. Required and must not be empty; ask the user if unknown."),
-  path: z.string().default(""),
+  project: z.string().min(1, "project must not be empty").describe("Required exact project name from the startup catalog."),
+  path: z.string().default("").describe("Project-relative directory path; empty means project root."),
   response_format: RESPONSE_FORMAT,
 });
 
 export const ListProjectsArgs = z.object({
-  filter: z.string().optional().describe("Filter projects by substring or glob pattern (e.g., 'myproject', 'release-*')"),
+  filter: z.string().optional().describe("Optional substring or glob filter, e.g. android-* or release-* ."),
   response_format: RESPONSE_FORMAT,
 });
 
 export const DependencyMapArgs = z.object({
-  project: z.string().min(1).describe("Project name"),
-  path: z.string().min(1).describe("File path relative to project root"),
-  depth: z.number().int().min(1).max(3).default(2).describe("How many levels deep to trace (1–3, default 2)"),
-  direction: z.enum(["uses", "used_by", "both"]).default("both").describe("Trace what this file uses, what uses it, or both"),
+  project: z.string().min(1).describe("Required exact project name from startup catalog or a prior result."),
+  path: z.string().min(1).describe("Required project-relative file path from a prior result."),
+  depth: z.number().int().min(1).max(3).default(2).describe("Dependency traversal depth (1-3; default 2)."),
+  direction: z.enum(["uses", "used_by", "both"]).default("both").describe("Trace dependencies, dependents, or both (default both)."),
   response_format: RESPONSE_FORMAT,
 });
 export type DependencyMapArgs = z.infer<typeof DependencyMapArgs>;
@@ -89,35 +89,35 @@ export const BatchSearchArgs = z.object({
   queries: z
     .array(
       z.object({
-        query: z.string().min(1),
-        search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
-        max_results: z.number().int().min(1).max(25).default(5),
+        query: z.string().min(1).describe("Required search text for this query."),
+        search_type: z.enum(["full", "defs", "refs", "path"]).default("full").describe("Search type for this query (default full)."),
+        max_results: z.number().int().min(1).max(25).default(5).describe("Maximum results for this query (1-25; default 5)."),
       })
     )
     .min(1)
     .max(5)
-    .describe("Search queries to execute in parallel"),
-  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
+    .describe("One to five search queries executed in parallel."),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact project names from the startup catalog; omit only with a default project."),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
   response_format: RESPONSE_FORMAT,
 });
 
 export const SearchAndReadArgs = z.object({
-  query: z.string().min(1),
-  search_type: z.enum(["full", "defs", "refs", "path"]).default("full"),
-  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
-  context_lines: z.number().int().min(1).max(50).default(5).describe("Lines of context around each match"),
-  max_results: z.number().int().min(1).max(10).default(3),
+  query: z.string().min(1).describe("Required symbol, text, or path query."),
+  search_type: z.enum(["full", "defs", "refs", "path"]).default("full").describe("Search type: full, defs, refs, or path (default full)."),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact project names from the startup catalog; omit only with a default project."),
+  context_lines: z.number().int().min(1).max(50).default(5).describe("Context lines around each match (1-50; default 5)."),
+  max_results: z.number().int().min(1).max(10).default(3).describe("Maximum matching files to read (1-10; default 3)."),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
   response_format: RESPONSE_FORMAT,
 });
 
 export const GetSymbolContextArgs = z.object({
-  symbol: z.string().min(1).describe("Symbol name (class, function, method, etc.)"),
-  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact non-empty OpenGrok project names. Omit only when a server default project is configured."),
-  context_lines: z.number().int().min(5).max(50).default(20).describe("Lines of context around the definition"),
-  max_refs: z.number().int().min(1).max(20).default(5),
-  include_header: z.boolean().default(true).describe("Also fetch corresponding .h/.hpp if a .cpp definition is found"),
+  symbol: z.string().min(1).describe("Required exact symbol name: class, function, method, or variable."),
+  projects: z.array(z.string().min(1)).min(1).optional().describe("Exact project names from the startup catalog; omit only with a default project."),
+  context_lines: z.number().int().min(5).max(50).default(20).describe("Definition context lines (5-50; default 20)."),
+  max_refs: z.number().int().min(1).max(20).default(5).describe("Maximum reference samples (1-20; default 5)."),
+  include_header: z.boolean().default(true).describe("Also fetch a matching C/C++ header (default true)."),
   file_type: z.string().optional().describe(FILE_TYPE_DESC),
   response_format: RESPONSE_FORMAT,
 });
@@ -130,13 +130,13 @@ export const GetCompileInfoArgs = z.object({
   path: z.string().min(1, "path must not be empty").refine(
     (p) => !/[\0\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]/.test(p) && !/(^|[/\\])\.\.([/\\]|$)/.test(p) && !/%2e%2e/i.test(p),
     { message: "path contains unsafe traversal sequences" }
-  ).describe("Absolute or project-relative path (e.g., GridNode/EventLoop.cpp)."),
+  ).describe("Local absolute or workspace-relative C/C++ file path."),
   response_format: RESPONSE_FORMAT,
 });
 
 export const GetFileSymbolsArgs = z.object({
-  project: z.string().min(1, "project must not be empty").describe("Exact OpenGrok project name. Required and must not be empty; ask the user if unknown."),
-  path: z.string().min(1).describe("Path to the file within the project (e.g. GridNode/EventLoop.cpp)"),
+  project: z.string().min(1, "project must not be empty").describe("Required exact project name from startup catalog or a prior result."),
+  path: z.string().min(1).describe("Required project-relative file path from a prior result."),
   response_format: RESPONSE_FORMAT,
 });
 

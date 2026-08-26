@@ -211,12 +211,16 @@ const VERSION = (typeof __VERSION__ !== "undefined"
 
 export const SERVER_INSTRUCTIONS_TEMPLATE = `You are connected to an OpenGrok code search MCP server.
 
-## CONNECTION AND PROJECT
-Route Android 15 → opengrok-android-v, Android 16 → opengrok-android-w, Android 17 → opengrok-android-x. If version/connection is unclear, ask; never guess. Every code query needs an exact non-empty project. If unknown, list projects or ask; never send an empty project/projects array.
+## CONNECTION
+Route Android 15 → opengrok-android-v, Android 16 → opengrok-android-w, Android 17 → opengrok-android-x. If Android version or connection is unclear, ask; never guess.
+
+## AVAILABLE PROJECTS
+{{PROJECT_STATUS}}
+Use only an exact project name shown above, returned by opengrok_list_projects, or supplied by the user. Every code query needs a non-empty project/projects array unless a default project is explicitly configured. If uncertain, call opengrok_list_projects or ask; never guess.
 
 ## SESSION
 {{MEMORY_STATUS}}
-Run opengrok_index_health first. Use search_code, symbol_context, batch_search, targeted file reads, and dependency_map as needed. response_format auto selects compact output; use json only for programmatic parsing. Narrow queries when rate-limited.`.trim();
+Use opengrok_index_health for connectivity/latency and opengrok_list_projects to refresh names. Prefer symbol_context or search_and_read over many small calls; use batch_search for independent queries and line-ranged file reads for large files. response_format=auto is preferred; use json only for programmatic parsing.`.trim();
 
 /**
  * Code Mode uses a shorter instruction set — only 5 tools are exposed so the full
@@ -225,8 +229,12 @@ Run opengrok_index_health first. Use search_code, symbol_context, batch_search, 
  */
 export const SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE = `You are connected to an OpenGrok code search MCP server in Code Mode.
 
-## CONNECTION AND PROJECT
-Android 15 → opengrok-android-v; Android 16 → opengrok-android-w; Android 17 → opengrok-android-x. If unknown, ask; never guess. Search only with an exact non-empty project (or configured default); never send an empty project/projects array.
+## CONNECTION
+Android 15 → opengrok-android-v; Android 16 → opengrok-android-w; Android 17 → opengrok-android-x. If Android version or connection is unclear, ask; never guess.
+
+## AVAILABLE PROJECTS
+{{PROJECT_STATUS}}
+Use only an exact project name shown above, returned by opengrok_api, or supplied by the user. Search with a non-empty projects array unless a default project is explicitly configured; never guess or send an empty array.
 
 ## SESSION
 {{MEMORY_STATUS}}
@@ -234,6 +242,50 @@ Call opengrok_api once, then opengrok_execute. Read memory when prior context ex
 
 ## SANDBOX
 env.opengrok methods are synchronous. Do not use Promise.all; use batchSearch. Handle elicit cancellation and null sample results. For file ambiguity, ask before fetching. Paginate search with startIndex/endIndex as documented by opengrok_api.`.trim();
+
+const STARTUP_PROJECT_LIMIT = 50;
+
+/** Format remote project names as data, not instructions, for the MCP init prompt. */
+export function formatProjectCatalog(
+  projectNames: string[],
+  defaultProject?: string
+): string {
+  const uniqueNames = [...new Set(projectNames.map((name) => name.trim()).filter(Boolean))];
+  const visible = uniqueNames.slice(0, STARTUP_PROJECT_LIMIT);
+  const catalog = JSON.stringify(visible);
+  const defaultHint = defaultProject?.trim()
+    ? ` Configured default project: ${JSON.stringify(defaultProject.trim())}.`
+    : "";
+  const remainder = uniqueNames.length > visible.length
+    ? ` Showing ${visible.length} of ${uniqueNames.length}; refresh the full list with the project-listing capability.`
+    : "";
+
+  if (uniqueNames.length === 0) {
+    return `[OpenGrok] Connected, but no indexed projects were returned.${defaultHint} Ask the user or administrator before searching.`;
+  }
+
+  return `[OpenGrok] Connected. Available exact project names (${uniqueNames.length}): ${catalog}.${defaultHint}${remainder}`;
+}
+
+async function resolveStartupProjectStatus(
+  client: OpenGrokClient,
+  defaultProject?: string
+): Promise<string> {
+  try {
+    if (!(await client.testConnection())) {
+      return "[OpenGrok] Startup connection check failed. Recheck the selected server and credentials before searching.";
+    }
+  } catch {
+    return "[OpenGrok] Startup connection check failed. Recheck the selected server and credentials before searching.";
+  }
+
+  try {
+    const projects = await client.listProjects();
+    return formatProjectCatalog(projects.map((project) => project.name), defaultProject);
+  } catch {
+    return "[OpenGrok] Connected, but project discovery failed. Refresh the project list or ask the user before searching.";
+  }
+}
 
 // Alias for test-export backward compatibility
 const SERVER_INSTRUCTIONS = SERVER_INSTRUCTIONS_TEMPLATE;
@@ -244,110 +296,112 @@ const SERVER_INSTRUCTIONS = SERVER_INSTRUCTIONS_TEMPLATE;
 
 export const TOOL_DOCS: Record<string, string> = {
   opengrok_search_code: `## opengrok_search_code
-Search by symbol, text, or path across projects.
+Search indexed code by text, definition, reference, or file path. Use exact project names from the startup catalog.
 
 **Parameters:**
-- \`query\` — search term (required)
-- \`projects\` — scope to one or more projects (optional)
-- \`search_type\` — symbol|full|path|hist|type (default: full)
-- \`max_results\` — 1-25 (default: 10)
+- \`query\` — non-empty search text (required)
+- \`projects\` — non-empty exact names; omit only with a configured default
+- \`search_type\` — full|defs|refs|path (default: full)
+- \`max_results\` — 1-100 (default: 10)
+- \`start_index\` — zero-based pagination offset
 
-**Example:** \`opengrok_search_code({ query: "AuthService", search_type: "symbol", projects: ["myrepo"] })\``,
+**Example:** \`opengrok_search_code({ query: "AuthService", search_type: "defs", projects: ["myrepo"] })\``,
 
   opengrok_get_file_content: `## opengrok_get_file_content
-Fetch file content with optional line range.
+Read a known project-relative file; copy project and path from a prior result.
 
 **Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)
-- \`start_line\` — first line (optional)
-- \`end_line\` — last line (optional)`,
+- \`project\` — exact non-empty project name (required)
+- \`path\` — project-relative file path (required)
+- \`start_line\`/\`end_line\` — optional 1-indexed inclusive range`,
 
   opengrok_get_symbol_context: `## opengrok_get_symbol_context
-One-call symbol investigation: definition + header + callers.
+Investigate one symbol: definition context, header, references, and file symbols.
 
 **Parameters:**
-- \`symbol\` — symbol name (required)
-- \`project\` — project name (optional)`,
+- \`symbol\` — exact symbol name (required)
+- \`projects\` — non-empty exact names; omit only with a configured default`,
 
   opengrok_index_health: `## opengrok_index_health
-Check server health and list all indexed projects. Run this first each session.`,
+Check connectivity, latency, staleness, and project count. Use opengrok_list_projects for exact names.`,
 
   opengrok_read_memory: `## opengrok_read_memory
-Read active-task.md or investigation-log.md.
+Read prior task state or accumulated investigation findings.
 
 **Parameters:**
 - \`filename\` — "active-task.md" or "investigation-log.md"`,
 
   opengrok_update_memory: `## opengrok_update_memory
-Write or append to active-task.md or investigation-log.md. Rate-limited to 20 rpm.
+Persist task state or durable investigation findings. Rate-limited to 20 rpm.
 
 **Parameters:**
 - \`filename\` — file to update
 - \`content\` — new content or append text
-- \`mode\` — "write" or "append"`,
+- \`mode\` — write for active task; append for investigation log`,
 
   opengrok_memory_status: `## opengrok_memory_status
-Show current memory bank file sizes and modification times. No parameters required.`,
+Check whether prior memory exists by file size and modification time. No parameters.`,
 
   opengrok_batch_search: `## opengrok_batch_search
-Run 2-5 searches in parallel in a single call. Rate-limited to 5 rpm (expensive operation).
+Run 1-5 independent searches in parallel under one exact project scope.
 
 **Parameters:**
-- \`queries\` — array of search query objects (required)`,
+- \`queries\` — 1-5 search query objects (required)
+- \`projects\` — non-empty exact names; omit only with a configured default`,
 
   opengrok_search_and_read: `## opengrok_search_and_read
-Combined search + file read in one call. Prefer over separate search + get_file_content.
+Search and read short context around top matches in one call.
 
 **Parameters:**
-- \`query\` — search term (required)
-- \`project\` — project scope (optional)`,
+- \`query\` — non-empty search text (required)
+- \`projects\` — non-empty exact names; omit only with a configured default`,
 
   opengrok_find_file: `## opengrok_find_file
-Find files by name pattern across projects.
+Find indexed paths by filename, substring, or glob before reading an unknown file.
 
 **Parameters:**
-- \`path_pattern\` — glob or substring to match against file paths (required)
-- \`projects\` — scope to specific projects (optional)`,
+- \`path_pattern\` — non-empty filename, substring, or glob (required)
+- \`projects\` — non-empty exact names; omit only with a configured default`,
 
   opengrok_browse_directory: `## opengrok_browse_directory
-List directory contents.
+List files and subdirectories inside one exact project.
 
 **Parameters:**
-- \`path\` — directory path (required)
-- \`project\` — project name (required)`,
+- \`project\` — exact non-empty project name (required)
+- \`path\` — project-relative directory; empty means project root`,
 
   opengrok_list_projects: `## opengrok_list_projects
-List all indexed projects. No parameters required.`,
+Return exact project names on this connected server. Use returned names unchanged. Optional filter accepts a substring or glob.`,
 
   opengrok_get_file_symbols: `## opengrok_get_file_symbols
-List all symbols defined in a file. Call before get_file_content to find line ranges.
+List symbols and line numbers in a known file before a focused content read.
 
 **Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)`,
+- \`project\` — exact non-empty project name (required)
+- \`path\` — project-relative path from a prior result (required)`,
 
   opengrok_dependency_map: `## opengrok_dependency_map
-Build a dependency map showing what a file uses and what uses it. Rate-limited to 10 rpm (BFS traversal = multiple requests).
+Trace dependencies, dependents, or both for a known file. Keep traversal depth small.
 
 **Parameters:**
-- \`path\` — file path (required)
-- \`project\` — project name (required)`,
+- \`project\` — exact non-empty project name (required)
+- \`path\` — project-relative path from a prior result (required)
+- \`depth\` — 1-3; \`direction\` — uses|used_by|both`,
 
   opengrok_get_compile_info: `## opengrok_get_compile_info
-Get compiler flags and include paths for a C/C++ file from compile_commands.json.
+Read local C/C++ compiler flags and includes from compile_commands.json.
 
 **Parameters:**
-- \`path\` — file path (required)`,
+- \`path\` — local absolute or workspace-relative path (required)`,
 
   opengrok_api: `## opengrok_api
-[Code Mode] Return the full Code Mode API specification. Call once per session.`,
+[Code Mode] Return the API, current project catalog, project rules, and pagination guidance. Call once per session.`,
 
   opengrok_execute: `## opengrok_execute
-[Code Mode] Execute JavaScript in the QuickJS sandbox with OpenGrok API access. Rate-limited to 10 rpm.
+[Code Mode] Execute synchronous env.opengrok calls using exact projects from opengrok_api or prior results.
 
 **Parameters:**
-- \`code\` — JS function body using env.opengrok.* for API calls (required)
+- \`code\` — non-empty JS function body; return the smallest useful value
 
 **Note on large results:** When the return value exceeds the context budget, it is truncated at a JSON array/object boundary. Truncated output ends with \`\\n// [truncated: N more elements]\` or \`\\n// [truncated: N more keys]\` and is intentionally not valid JSON — parse only the portion before the comment if needed.`,
 };
@@ -780,6 +834,19 @@ function extractZodParamDescs(
     let description: string | undefined;
     // Walk unwrap chain: ZodOptional/ZodDefault wrap the inner type
     while (node) {
+      // Zod 4 exposes .describe() metadata on `description`/`meta()`. Keep the
+      // _def fallback for older Zod shapes used by downstream consumers.
+      const metadataDescription = typeof node.meta === "function"
+        ? node.meta()?.description
+        : undefined;
+      if (typeof node.description === "string") {
+        description = node.description;
+        break;
+      }
+      if (typeof metadataDescription === "string") {
+        description = metadataDescription;
+        break;
+      }
       if (typeof node._def?.description === "string") {
         description = node._def.description;
         break;
@@ -797,67 +864,67 @@ export const TOOL_DEFS: Record<string, {
   parameters?: Record<string, { description?: string }>;
 }> = {
   opengrok_search_code: {
-    description: "Full-text or symbol search across one or all OpenGrok projects.",
+    description: "Search text, definitions, references, or paths in exact OpenGrok projects.",
     parameters: extractZodParamDescs(SearchCodeArgs.shape),
   },
   opengrok_find_file: {
-    description: "Find files by name across all or one project.",
+    description: "Find indexed file paths by filename, substring, or glob in exact projects.",
     parameters: extractZodParamDescs(FindFileArgs.shape),
   },
   opengrok_get_file_content: {
-    description: "Fetch file content with optional line range.",
+    description: "Read a known file from one exact project, optionally by line range.",
     parameters: extractZodParamDescs(GetFileContentArgs.shape),
   },
   opengrok_browse_directory: {
-    description: "List files and subdirectories in a project directory.",
+    description: "Browse a directory or root inside one exact OpenGrok project.",
     parameters: extractZodParamDescs(BrowseDirectoryArgs.shape),
   },
   opengrok_list_projects: {
-    description: "List all indexed OpenGrok projects.",
+    description: "Discover exact project names available on the connected OpenGrok server.",
     parameters: extractZodParamDescs(ListProjectsArgs.shape),
   },
   opengrok_batch_search: {
-    description: "Execute 2-5 parallel OpenGrok searches in one call.",
+    description: "Run one to five independent searches in parallel under one project scope.",
     parameters: extractZodParamDescs(BatchSearchArgs.shape),
   },
   opengrok_search_and_read: {
-    description: "Search then read matching files in a single call.",
+    description: "Search exact projects and read short context around top matches.",
     parameters: extractZodParamDescs(SearchAndReadArgs.shape),
   },
   opengrok_get_symbol_context: {
-    description: "Complete symbol investigation: definition + header + references in one call.",
+    description: "Get a symbol definition, context, header, references, and file symbols.",
     parameters: extractZodParamDescs(GetSymbolContextArgs.shape),
   },
   opengrok_index_health: {
-    description: "Check OpenGrok server health and indexed project list.",
+    description: "Check server connectivity, latency, staleness, and indexed project count.",
     parameters: extractZodParamDescs(IndexHealthArgs.shape),
   },
   opengrok_get_compile_info: {
-    description: "Get compiler flags and include paths from compile_commands.json.",
+    description: "Read local C/C++ flags and include paths from compile_commands.json.",
     parameters: extractZodParamDescs(GetCompileInfoArgs.shape),
   },
   opengrok_get_file_symbols: {
-    description: "List all symbols (functions, classes, variables) defined in a file.",
+    description: "List symbols and line numbers defined in a known project file.",
     parameters: extractZodParamDescs(GetFileSymbolsArgs.shape),
   },
   opengrok_dependency_map: {
-    description: "Build #include/import dependency graph (configurable depth).",
+    description: "Trace dependencies and dependents for a known file in one exact project.",
     parameters: extractZodParamDescs(DependencyMapArgs.shape),
   },
   opengrok_memory_status: {
-    description: "Show current memory bank file sizes and modification times.",
+    description: "Check whether prior investigation memory exists before reading it.",
     parameters: {
       _: { description: "(no input required)" },
     },
   },
   opengrok_read_memory: {
-    description: "Read active-task.md or investigation-log.md from the memory bank.",
+    description: "Read current task state or accumulated investigation findings.",
     parameters: {
       filename: { description: "File to read from the memory bank" },
     },
   },
   opengrok_update_memory: {
-    description: "Write or append to active-task.md or investigation-log.md.",
+    description: "Persist current task state or append durable investigation findings.",
     parameters: {
       filename: { description: "File to update" },
       content: { description: "Content to write" },
@@ -865,15 +932,15 @@ export const TOOL_DEFS: Record<string, {
     },
   },
   opengrok_api: {
-    description: "Return the full Code Mode API specification.",
+    description: "Load Code Mode API, available projects, project rules, and pagination.",
     parameters: {
       _: { description: "(no input required)" },
     },
   },
   opengrok_execute: {
-    description: "Execute JavaScript in the QuickJS sandbox with OpenGrok API access.",
+    description: "Run synchronous env.opengrok calls with an exact project scope.",
     parameters: {
-      code: { description: "JS function body; use env.opengrok.* for API calls; return a value." },
+      code: { description: "JS body using env.opengrok; use exact projects and return a small value." },
     },
   },
 };
@@ -1529,7 +1596,9 @@ export function createServer(
   const codeMode = config.OPENGROK_CODE_MODE;
 
   const baseInstructions = codeMode ? SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE : SERVER_INSTRUCTIONS_TEMPLATE;
-  const instructions = instructionsOverride ?? baseInstructions;
+  const instructions = (instructionsOverride ?? baseInstructions)
+    .replace("{{PROJECT_STATUS}}", "[OpenGrok] Project catalog was not preloaded. Discover exact project names before searching.")
+    .replace("{{MEMORY_STATUS}}", "[Memory] No prior context.");
 
   const server = new McpServer(
     { name: "opengrok-mcp", version: VERSION },
@@ -1604,7 +1673,7 @@ function registerMemoryTools(
     "opengrok_memory_status",
     {
       title: "Memory Bank Status",
-      description: "Show current memory bank file sizes and modification times.",
+      description: TOOL_DEFS.opengrok_memory_status.description,
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true, destructiveHint: false },
     },
@@ -1640,7 +1709,7 @@ function registerMemoryTools(
     "opengrok_read_memory",
     {
       title: "Read Memory Bank",
-      description: "Read active-task.md or investigation-log.md from the memory bank.",
+      description: TOOL_DEFS.opengrok_read_memory.description,
       inputSchema: {
         filename: z.enum(["active-task.md", "investigation-log.md"]
         ).describe("File to read from the memory bank"),
@@ -1679,7 +1748,7 @@ function registerMemoryTools(
     "opengrok_update_memory",
     {
       title: "Update Memory Bank",
-      description: "Write or append to active-task.md or investigation-log.md.",
+      description: TOOL_DEFS.opengrok_update_memory.description,
       inputSchema: {
         filename: z.enum(["active-task.md", "investigation-log.md"])
           .describe("File to update"),
@@ -1776,39 +1845,49 @@ function registerCodeModeTools(
     "opengrok_api",
     {
       title: "OpenGrok API Reference",
-      description: "Return the full Code Mode API specification.",
+      description: TOOL_DEFS.opengrok_api.description,
       inputSchema: {},
       annotations: CODE_MODE_API_ANNOTATIONS,
     },
     async () => {
       auditLog({ type: "tool_invoke", tool: "opengrok_api" });
       try {
+        let projectNames: string[] = [];
         let projectHint = "";
-        if (config.OPENGROK_ENABLE_ELICITATION && !config.OPENGROK_DEFAULT_PROJECT?.trim()) {
-          const projects = await client.listProjects();
-          if (projects.length > 0) {
-            const projectNames = projects.map((p) => p.name).slice(0, 20);
-            const result = await elicitOrFallback(
-              server,
-              "Which project should I work in this session?",
-              {
-                type: "object",
-                properties: {
-                  project: {
-                    type: "string",
-                    enum: projectNames,
-                    description: "Default project for this session",
-                  },
+        try {
+          projectNames = (await client.listProjects()).map((project) => project.name);
+          projectHint = `\n\n${formatProjectCatalog(projectNames, sessionDefaultProject)}`;
+        } catch {
+          projectHint = "\n\n[OpenGrok] Project discovery failed. Ask the user for an exact project name before searching.";
+        }
+
+        if (
+          config.OPENGROK_ENABLE_ELICITATION &&
+          !sessionDefaultProject &&
+          projectNames.length > 0
+        ) {
+          const choices = projectNames.slice(0, 20);
+          const result = await elicitOrFallback(
+            server,
+            "Which project should I work in this session?",
+            {
+              type: "object",
+              properties: {
+                project: {
+                  type: "string",
+                  enum: choices,
+                  description: "Default project for this session",
                 },
-                required: ["project"],
-              }
-            );
-            if (result.action === "accept" && typeof result.content?.project === "string" && result.content.project) {
-              sessionDefaultProject = result.content.project;
-              projectHint =
-                `\n\n**Working project: ${sessionDefaultProject}**` +
-                ` — use this project in all env.opengrok calls unless the user specifies otherwise.`;
+              },
+              required: ["project"],
             }
+          );
+          if (result.action === "accept" && typeof result.content?.project === "string" && result.content.project) {
+            sessionDefaultProject = result.content.project;
+            projectHint =
+              `\n\n${formatProjectCatalog(projectNames, sessionDefaultProject)}` +
+              `\n\n**Working project: ${sessionDefaultProject}**` +
+              ` — use this project in all env.opengrok calls unless the user specifies otherwise.`;
           }
         }
         if (!_apiSpecYaml) _apiSpecYaml = yaml.dump(API_SPEC, { lineWidth: 120, noRefs: true });
@@ -1828,9 +1907,12 @@ function registerCodeModeTools(
     "opengrok_execute",
     {
       title: "Execute OpenGrok Code",
-      description: "Execute JavaScript in the QuickJS sandbox with OpenGrok API access. Large results are truncated with a // comment suffix (not valid JSON); parse before the comment if needed.",
+      description: TOOL_DEFS.opengrok_execute.description,
       inputSchema: {
-        code: z.string().min(1).max(65536).describe("JS function body; use env.opengrok.* for API calls; return a value."),
+        code: z.string().min(1).max(65536).describe(
+          TOOL_DEFS.opengrok_execute.parameters?.code.description ??
+          "JS body using env.opengrok; use exact projects and return a small value."
+        ),
       },
       annotations: CODE_MODE_EXECUTE_ANNOTATIONS,
     },
@@ -1946,7 +2028,7 @@ function registerLegacyTools(
     {
       title: "Search Code",
       description: desc(
-        "Full-text or symbol search across one or all OpenGrok projects.",
+        TOOL_DEFS.opengrok_search_code.description,
         "Search code (full-text or symbol)"
       ),
       inputSchema: SearchCodeArgs.shape,
@@ -1975,7 +2057,7 @@ function registerLegacyTools(
                 properties: {
                   project: {
                     type: "string",
-                    description: "Project name",
+                    description: "Exact project name from this server",
                     enum: projectNames,
                   },
                 },
@@ -2006,7 +2088,7 @@ function registerLegacyTools(
     "opengrok_find_file",
     {
       title: "Find File",
-      description: desc("Find files by name across all or one project.", "Find file by name"),
+      description: desc(TOOL_DEFS.opengrok_find_file.description, "Find file by name in exact projects"),
       inputSchema: FindFileArgs.shape,
       annotations: READ_ONLY_OPEN,
     },
@@ -2037,7 +2119,7 @@ function registerLegacyTools(
     {
       title: "Get File Content",
       description: desc(
-        "Fetch file content with optional line range.",
+        TOOL_DEFS.opengrok_get_file_content.description,
         "Read file lines (use start_line+end_line)"
       ),
       inputSchema: GetFileContentArgs.shape,
@@ -2063,7 +2145,7 @@ function registerLegacyTools(
     "opengrok_browse_directory",
     {
       title: "Browse Directory",
-      description: desc("List files and subdirectories in a project directory.", "List directory contents"),
+      description: desc(TOOL_DEFS.opengrok_browse_directory.description, "Browse one exact project directory"),
       inputSchema: BrowseDirectoryArgs.shape,
       annotations: READ_ONLY_OPEN,
     },
@@ -2087,7 +2169,7 @@ function registerLegacyTools(
     "opengrok_list_projects",
     {
       title: "List Projects",
-      description: desc("List all indexed OpenGrok projects.", "List all indexed projects"),
+      description: desc(TOOL_DEFS.opengrok_list_projects.description, "Discover exact project names"),
       inputSchema: ListProjectsArgs.shape,
       annotations: READ_ONLY_OPEN,
     },
@@ -2112,8 +2194,8 @@ function registerLegacyTools(
     {
       title: "Batch Search",
       description: desc(
-        "Execute 2-5 parallel OpenGrok searches in one call.",
-        "Run 2–5 parallel searches"
+        TOOL_DEFS.opengrok_batch_search.description,
+        "Run 1-5 scoped searches in parallel"
       ),
       inputSchema: BatchSearchArgs.shape,
       annotations: READ_ONLY_OPEN,
@@ -2136,7 +2218,7 @@ function registerLegacyTools(
     {
       title: "Search and Read",
       description: desc(
-        "Search then read matching files in a single call.",
+        TOOL_DEFS.opengrok_search_and_read.description,
         "Search and read surrounding code"
       ),
       inputSchema: SearchAndReadArgs.shape,
@@ -2159,7 +2241,7 @@ function registerLegacyTools(
     {
       title: "Get Symbol Context",
       description: desc(
-        "Complete symbol investigation: definition + header + references in one call.",
+        TOOL_DEFS.opengrok_get_symbol_context.description,
         "Symbol definition, header and refs"
       ),
       inputSchema: GetSymbolContextArgs.shape,
@@ -2199,7 +2281,7 @@ function registerLegacyTools(
     {
       title: "Index Health",
       description: desc(
-        "Check OpenGrok server health and indexed project list.",
+        TOOL_DEFS.opengrok_index_health.description,
         "Server connectivity and index status"
       ),
       inputSchema: IndexHealthArgs.shape,
@@ -2290,7 +2372,7 @@ function registerLegacyTools(
     {
       title: "Get Compile Info",
       description: desc(
-        "Get compiler flags and include paths from compile_commands.json.",
+        TOOL_DEFS.opengrok_get_compile_info.description,
         "Compiler flags (requires compile_commands.json)"
       ),
       inputSchema: GetCompileInfoArgs.shape,
@@ -2316,7 +2398,7 @@ function registerLegacyTools(
     {
       title: "Get File Symbols",
       description: desc(
-        "List all symbols (functions, classes, variables) defined in a file.",
+        TOOL_DEFS.opengrok_get_file_symbols.description,
         "File symbols list"
       ),
       inputSchema: GetFileSymbolsArgs.shape,
@@ -2360,7 +2442,7 @@ function registerLegacyTools(
     {
       title: "Dependency Map",
       description: desc(
-        "Build #include/import dependency graph (configurable depth).",
+        TOOL_DEFS.opengrok_dependency_map.description,
         "Include/import dependency graph"
       ),
       inputSchema: DependencyMapArgs.shape,
@@ -2787,6 +2869,12 @@ export async function runServer(
   } else {
     resolvedInstructions = baseTemplate.replace("{{MEMORY_STATUS}}", "[Memory] No prior context.");
   }
+
+  const projectStatus = await resolveStartupProjectStatus(
+    client,
+    config.OPENGROK_DEFAULT_PROJECT
+  );
+  resolvedInstructions = resolvedInstructions.replace("{{PROJECT_STATUS}}", projectStatus);
 
   const server = createServer(client, config, memoryBank, resolvedInstructions);
   const transport = new StdioServerTransport();

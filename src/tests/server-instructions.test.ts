@@ -18,6 +18,33 @@ describe('SERVER_INSTRUCTIONS token budget', () => {
     expect(SERVER_INSTRUCTIONS_TEMPLATE).toContain('{{MEMORY_STATUS}}');
   });
 
+  it('both modes reserve a startup project catalog placeholder', async () => {
+    const {
+      SERVER_INSTRUCTIONS_TEMPLATE,
+      SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE,
+    } = await import('../server/server.js');
+    expect(SERVER_INSTRUCTIONS_TEMPLATE).toContain('{{PROJECT_STATUS}}');
+    expect(SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE).toContain('{{PROJECT_STATUS}}');
+  });
+
+  it('formats connected project names as an exact JSON catalog', async () => {
+    const { formatProjectCatalog } = await import('../server/server.js');
+    const catalog = formatProjectCatalog(['android-v', 'android-w', 'android-v'], 'android-w');
+    expect(catalog).toContain('Available exact project names (2)');
+    expect(catalog).toContain('["android-v","android-w"]');
+    expect(catalog).toContain('Configured default project: "android-w"');
+  });
+
+  it('bounds large startup catalogs and directs the agent to refresh', async () => {
+    const { formatProjectCatalog } = await import('../server/server.js');
+    const catalog = formatProjectCatalog(
+      Array.from({ length: 52 }, (_, index) => `project-${index + 1}`),
+    );
+    expect(catalog).toContain('Showing 50 of 52');
+    expect(catalog).toContain('project-listing capability');
+    expect(catalog).not.toContain('project-51');
+  });
+
   it('no 3-step SESSION STARTUP sequence in template', async () => {
     const { SERVER_INSTRUCTIONS_TEMPLATE } = await import('../server/server.js');
     expect(SERVER_INSTRUCTIONS_TEMPLATE).not.toContain('Step 1');
