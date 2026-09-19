@@ -130,7 +130,6 @@ describe('DEFAULT_PER_TOOL_LIMITS', () => {
     expect(DEFAULT_PER_TOOL_LIMITS.opengrok_batch_search).toBe(5);
     expect(DEFAULT_PER_TOOL_LIMITS.opengrok_execute).toBe(10);
     expect(DEFAULT_PER_TOOL_LIMITS.opengrok_dependency_map).toBe(10);
-    expect(DEFAULT_PER_TOOL_LIMITS.opengrok_call_graph).toBe(5);
     expect(DEFAULT_PER_TOOL_LIMITS.opengrok_search_and_read).toBe(10);
   });
 });
@@ -152,4 +151,3 @@ describe('parsePerToolLimits', () => {
     expect(expectedDefaults.opengrok_dependency_map).toBe(10);
   });
 });
-

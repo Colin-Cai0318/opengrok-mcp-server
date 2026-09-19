@@ -91,14 +91,15 @@ To define several endpoints once, keep secrets in environment variables and put 
 }
 ```
 
-Start one MCP process per entry. `--url` values on the command line override the selected connection, so the same package can serve distinct endpoints in parallel:
+Start one MCP process with the file. At startup it queries every server's project catalog, rejects ambiguous duplicate project names, and builds an in-memory `project → connection` routing table. Search calls may include projects from different servers; project-scoped reads and directory/symbol requests are sent only to the owning URL:
 
 ```bash
-npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json --connection platform
-npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json --connection firmware
+npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json
 ```
 
-See [MCP_CLIENTS.md](MCP_CLIENTS.md#multiple-isolated-mcp-instances) for multi-instance client snippets. Do not pass Cookie values with command-line arguments: shell history and process listings can expose them.
+Use `--connection platform` only when you intentionally want the legacy single-server mode. `cookieEnv` and `passwordEnv` keep secrets out of JSON; do not pass Cookie or password values as command-line arguments because shell history and process listings can expose them. Configure `defaultProject` on at most one connection.
+
+See [MCP_CLIENTS.md](MCP_CLIENTS.md#automatic-multi-server-project-routing) for client snippets and routing behavior.
 
 ---
 

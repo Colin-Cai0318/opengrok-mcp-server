@@ -13,7 +13,7 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 
 
 import { z, ZodError } from "zod";
-import type { OpenGrokClient } from "./client.js";
+import type { OpenGrokClientLike } from "./client.js";
 import { assertSafePath, extractLineRange } from "./client.js";
 import type { Config } from "./config.js";
 import { parsePerToolLimits, getConfigDirectory, checkCredentialAge, loadConfig, resetConfig } from "./config.js";
@@ -66,8 +66,6 @@ import {
 import type {
   FileContent,
   SearchResults,
-  SearchResult,
-  SearchMatch,
   Project,
 } from "./models.js";
 import { BUDGET_LIMITS } from "./config.js";
@@ -268,7 +266,7 @@ export function formatProjectCatalog(
 }
 
 async function resolveStartupProjectStatus(
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   defaultProject?: string
 ): Promise<string> {
   try {
@@ -959,7 +957,7 @@ async function executeSearchCode(
     file_type?: string;
     response_format?: ResponseFormat;
   },
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config
 ): Promise<{ text: string; structured: SearchResults }> {
   const results = await client.search(
@@ -984,7 +982,7 @@ async function executeGetFileContent(
     end_line?: number;
     response_format?: ResponseFormat;
   },
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   local: LocalLayer
 ): Promise<{ text: string; structured: FileContent; warning?: string }> {
   let content: FileContent | null = null;
@@ -1025,7 +1023,7 @@ async function executeGetFileContent(
 
 async function executeListProjects(
   args: { filter?: string; response_format?: ResponseFormat },
-  client: OpenGrokClient
+  client: OpenGrokClientLike
 ): Promise<{ text: string; structured: { projects: Project[]; total: number } }> {
   const projects = await client.listProjects(args.filter);
   return {
@@ -1087,7 +1085,7 @@ async function executeBatchSearch(
     file_type?: string;
     response_format?: ResponseFormat;
   },
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config
 ): Promise<{
   text: string;
@@ -1140,7 +1138,7 @@ async function executeBatchSearch(
 
 async function handleSearchAndRead(
   args: z.infer<typeof SearchAndReadArgs>,
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config
 ): Promise<{ text: string; structured: { query: string; totalCount: number; entries: SearchAndReadEntry[] } }> {
   const searchResults = await client.search(
@@ -1199,7 +1197,7 @@ async function handleSearchAndRead(
 
 async function handleGetSymbolContextStructured(
   rawArgs: Record<string, unknown>,
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config
 ): Promise<{ text: string; structured: SymbolContextResult }> {
   const args = GetSymbolContextArgs.parse(rawArgs);
@@ -1398,7 +1396,7 @@ async function handleGetCompileInfo(
 
 async function executeBrowseDirectory(
   args: z.infer<typeof BrowseDirectoryArgs>,
-  client: OpenGrokClient
+  client: OpenGrokClientLike
 ): Promise<string> {
   const entries = await client.browseDirectory(args.project, args.path);
   return formatDirectoryListing(entries, args.project, args.path);
@@ -1413,7 +1411,7 @@ async function executeBrowseDirectory(
 async function dispatchTool(
   name: string,
   rawArgs: Record<string, unknown>,
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config,
   local: LocalLayer
 ): Promise<string> {
@@ -1588,7 +1586,7 @@ async function dispatchTool(
 // ---------------------------------------------------------------------------
 
 export function createServer(
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config,
   memoryBank?: MemoryBank,
   instructionsOverride?: string
@@ -1776,7 +1774,7 @@ function registerMemoryTools(
 
 function registerCodeModeTools(
   server: McpServer,
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config,
   memoryBank: MemoryBank,
   local: LocalLayer,
@@ -2010,7 +2008,7 @@ function registerCodeModeTools(
 
 function registerLegacyTools(
   server: McpServer,
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config,
   local: LocalLayer,
   compactDescriptions: boolean,
@@ -2428,7 +2426,7 @@ function registerLegacyTools(
         return {
           content: [
             { type: "text" as const, text: capResponse(formatFileSymbols(result)) },
-            { type: "resource_link" as const, uri: buildXrefUri(config.OPENGROK_BASE_URL, args.project, args.path), name: args.path, mimeType: getMimeType(args.path) },
+            { type: "resource_link" as const, uri: buildXrefUri(client.getBaseUrl(args.project), args.project, args.path), name: args.path, mimeType: getMimeType(args.path) },
           ],
         };
       } catch (err) {
@@ -2773,7 +2771,7 @@ let _sighupRegistered = false;
  */
 function setupNotificationHandlers(
   _server: McpServer,
-  _client: OpenGrokClient,
+  _client: OpenGrokClientLike,
   config: Config,
   configLoader: () => Config = loadConfig
 ): void {
@@ -2826,7 +2824,7 @@ function setupNotificationHandlers(
  * Every 5 minutes, tests connectivity and sends notification if status changes.
  * Returns the interval ID so it can be cleaned up if needed.
  */
-export function startHealthCheckPolling(server: McpServer, client: OpenGrokClient): NodeJS.Timeout {
+export function startHealthCheckPolling(server: McpServer, client: OpenGrokClientLike): NodeJS.Timeout {
   let lastConnected = false;
 
   return setInterval(() => {
@@ -2850,7 +2848,7 @@ export function startHealthCheckPolling(server: McpServer, client: OpenGrokClien
 
 /* v8 ignore start -- runServer connects to stdio transport; integration-level */
 export async function runServer(
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   config: Config,
   memoryBank?: MemoryBank,
   configLoader?: () => Config
@@ -2894,18 +2892,18 @@ export async function runServer(
   // Security: warn when credentials are transmitted over plaintext HTTP
   if (
     config.OPENGROK_BASE_URL.startsWith("http://") &&
-    (config.OPENGROK_USERNAME || config.OPENGROK_PASSWORD)
+    (config.OPENGROK_USERNAME || config.OPENGROK_PASSWORD || config.OPENGROK_COOKIE)
   ) {
     logger.warn(
       "Credentials configured but base URL uses plaintext HTTP. Use HTTPS to protect credentials in transit."
     );
   }
 
-  logger.info(`Starting server v${VERSION}, connected to: ${config.OPENGROK_BASE_URL}`);
+  logger.info(`Starting server v${VERSION}, connected to: ${client.getBaseUrl()}`);
 
-  if (!config.OPENGROK_USERNAME) {
+  if (!config.OPENGROK_USERNAME && !config.OPENGROK_COOKIE) {
     logger.warn(
-      "OPENGROK_USERNAME not configured. Set OPENGROK_USERNAME and OPENGROK_PASSWORD environment variables."
+      "OpenGrok authentication is not configured. Set username/password or a Cookie credential if the server requires it."
     );
   }
 
@@ -2966,7 +2964,7 @@ const DEPENDENCY_GRAPH_MAX_NODES = 50;
  * "used_by" — finds files that reference/call symbols from this file (refs search by filename).
  */
 async function buildDependencyGraph(
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   project: string,
   filePath: string,
   depth: number,

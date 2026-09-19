@@ -838,7 +838,7 @@ describe("RBAC for multi-user HTTP deployments (Task 5.10)", () => {
     }
   });
 
-  it("readonly allowed on opengrok_search", async () => {
+  it("readonly allowed on opengrok_search_code", async () => {
     const port = BASE_RBAC_PORT + 6;
     const { close } = await startHttpTransport(makeFactory(), {
       port,
@@ -866,7 +866,7 @@ describe("RBAC for multi-user HTTP deployments (Task 5.10)", () => {
           port,
           method: "POST",
           headers: { ...initHeaders, "Mcp-Session-Id": sessionId },
-          body: toolCallBody("opengrok_search"),
+          body: toolCallBody("opengrok_search_code"),
         });
         // Should NOT be 403
         expect(toolRes.status).not.toBe(403);
@@ -876,4 +876,3 @@ describe("RBAC for multi-user HTTP deployments (Task 5.10)", () => {
     }
   });
 });
-

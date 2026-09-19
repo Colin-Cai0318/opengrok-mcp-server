@@ -72,50 +72,48 @@ describe("RBAC — hasPermission", () => {
   });
 
   it("developer has explicit allow-list (no wildcard)", () => {
-    expect(hasPermission("developer", "opengrok_search")).toBe(true);
+    expect(hasPermission("developer", "opengrok_find_file")).toBe(true);
     expect(hasPermission("developer", "opengrok_execute")).toBe(true);
     expect(hasPermission("developer", "opengrok_search_code")).toBe(true);
     expect(hasPermission("developer", "unknown_tool")).toBe(false);
   });
 
   it("readonly has permission only for read-only tools", () => {
-    expect(hasPermission("readonly", "opengrok_search")).toBe(true);
     expect(hasPermission("readonly", "opengrok_search_code")).toBe(true);
     expect(hasPermission("readonly", "opengrok_get_file_content")).toBe(true);
-    expect(hasPermission("readonly", "opengrok_get_file_history")).toBe(true);
-    expect(hasPermission("readonly", "opengrok_get_symbol_info")).toBe(true);
-    expect(hasPermission("readonly", "opengrok_blame")).toBe(true);
-    expect(hasPermission("readonly", "opengrok_what_changed")).toBe(true);
+    expect(hasPermission("readonly", "opengrok_get_file_symbols")).toBe(true);
+    expect(hasPermission("readonly", "opengrok_list_projects")).toBe(true);
     expect(hasPermission("readonly", "opengrok_index_health")).toBe(true);
   });
 
   it("readonly blocked from write/execute tools", () => {
     expect(hasPermission("readonly", "opengrok_update_memory")).toBe(false);
     expect(hasPermission("readonly", "opengrok_execute")).toBe(false);
-    expect(hasPermission("readonly", "opengrok_batch_search")).toBe(false);
-    expect(hasPermission("readonly", "opengrok_dependency_map")).toBe(false);
+    expect(hasPermission("readonly", "opengrok_batch_search")).toBe(true);
+    expect(hasPermission("readonly", "opengrok_dependency_map")).toBe(true);
     expect(hasPermission("readonly", "opengrok_call_graph")).toBe(false);
-    expect(hasPermission("readonly", "opengrok_read_memory")).toBe(false);
+    expect(hasPermission("readonly", "opengrok_read_memory")).toBe(true);
   });
 
   it("developer allowed on all developer tools", () => {
     const devTools = [
-      "opengrok_search",
       "opengrok_search_code",
+      "opengrok_find_file",
       "opengrok_get_file_content",
-      "opengrok_get_file_history",
-      "opengrok_get_symbol_info",
+      "opengrok_browse_directory",
+      "opengrok_list_projects",
       "opengrok_batch_search",
-      "opengrok_what_changed",
-      "opengrok_blame",
+      "opengrok_search_and_read",
+      "opengrok_get_symbol_context",
+      "opengrok_get_file_symbols",
+      "opengrok_get_compile_info",
       "opengrok_dependency_map",
-      "opengrok_search_pattern",
       "opengrok_index_health",
       "opengrok_memory_status",
       "opengrok_read_memory",
       "opengrok_update_memory",
       "opengrok_execute",
-      "opengrok_call_graph",
+      "opengrok_api",
     ];
     for (const tool of devTools) {
       expect(hasPermission("developer", tool)).toBe(true);

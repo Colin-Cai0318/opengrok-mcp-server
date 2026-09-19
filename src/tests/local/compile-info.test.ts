@@ -387,7 +387,7 @@ describe("inferBuildRoot", () => {
       { file: srcFile, directory: buildDir, arguments: ["clang++", "-c", srcFile] },
     ]);
     const result = inferBuildRoot([singleDb]);
-    expect(result).toBe(path.resolve(buildDir));
+    expect(result).toBe(fs.realpathSync(buildDir));
   });
 
   it("returns common path prefix across multiple directory values", () => {
@@ -409,7 +409,7 @@ describe("inferBuildRoot", () => {
 
     const result = inferBuildRoot([multiDb]);
     // Common ancestor of tempDir/build/module1 and tempDir/build/module2 is tempDir/build
-    expect(result).toBe(path.join(tempDir, "build"));
+    expect(result).toBe(fs.realpathSync(path.join(tempDir, "build")));
   });
 
   it("handles entries without a directory field gracefully (uses those with one)", () => {
@@ -419,7 +419,7 @@ describe("inferBuildRoot", () => {
       { file: srcFile, arguments: ["clang++", "-c", srcFile] }, // no directory
     ]);
     const result = inferBuildRoot([mixedDb]);
-    expect(result).toBe(path.resolve(buildDir));
+    expect(result).toBe(fs.realpathSync(buildDir));
   });
 
   it("returns empty string when no entries have a directory field", () => {
