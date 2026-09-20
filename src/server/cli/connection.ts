@@ -8,6 +8,8 @@ export interface NamedConnection {
   passwordEnv?: string;
   defaultProject?: string;
   verifySsl?: boolean;
+  proxyEnv?: string;
+  direct?: boolean;
 }
 
 interface ConnectionsDocument {
@@ -92,6 +94,29 @@ function readConnections(filePath: string, environment: NodeJS.ProcessEnv): Reso
       const password = environment[connection.passwordEnv];
       if (!password) throw new Error(`Connection "${name}" requires environment variable "${connection.passwordEnv}"`);
       overrides.OPENGROK_PASSWORD = password;
+    }
+    if (connection.proxyEnv !== undefined &&
+        (typeof connection.proxyEnv !== "string" || !connection.proxyEnv.trim())) {
+      throw new Error(`Connection "${name}" must define proxyEnv as a non-empty environment variable name`);
+    }
+    if (connection.direct !== undefined && typeof connection.direct !== "boolean") {
+      throw new Error(`Connection "${name}" must define direct as a boolean`);
+    }
+    if (connection.proxyEnv && connection.direct) {
+      throw new Error(`Connection "${name}" cannot configure both proxyEnv and direct`);
+    }
+    if (connection.proxyEnv) {
+      const proxy = environment[connection.proxyEnv];
+      if (!proxy) throw new Error(`Connection "${name}" requires environment variable "${connection.proxyEnv}"`);
+      // OpenGrokClient consumes the uppercase HTTP(S) proxy settings. Set both
+      // per connection so the URL scheme cannot fall back to a global proxy.
+      overrides.HTTP_PROXY = proxy;
+      overrides.HTTPS_PROXY = proxy;
+    } else if (connection.direct) {
+      // Empty overrides intentionally mask process-level proxy variables when
+      // loadConfig merges process.env with this connection's configuration.
+      overrides.HTTP_PROXY = "";
+      overrides.HTTPS_PROXY = "";
     }
     return { name, overrides };
   });

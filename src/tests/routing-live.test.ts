@@ -43,6 +43,11 @@ liveDescribe("live multi-server routing", () => {
       expect(libreSearch).not.toHaveBeenCalled();
       expect(couchbaseResult.results.length).toBeGreaterThan(0);
       expect(couchbaseResult.results.every((result) => result.project === "7.6.0")).toBe(true);
+
+      const combinedResult = await router.search("README", "path", ["core", "7.6.0"], 4);
+      expect(combinedResult.results.map((result) => result.project)).toContain("core");
+      expect(combinedResult.results.map((result) => result.project)).toContain("7.6.0");
+      expect(combinedResult.results.length).toBeLessThanOrEqual(4);
     } finally {
       await Promise.allSettled([libreOffice.close(), couchbase.close()]);
     }
