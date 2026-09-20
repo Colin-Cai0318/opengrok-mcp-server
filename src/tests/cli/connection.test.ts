@@ -45,7 +45,64 @@ describe("server connection arguments", () => {
   });
 
   it("rejects incomplete named-connection arguments and missing cookies", () => {
-    expect(() => parseServerArguments(["--connection", "platform"])).toThrow("must be used together");
+    expect(() => parseServerArguments(["--connection", "platform"])).toThrow("requires --connections-file");
     expect(() => parseServerArguments(["--cookie-env", "MISSING"], {})).toThrow("MISSING");
+  });
+
+  it("loads every named connection when no single connection is selected", () => {
+    const dir = mkdtempSync(join(tmpdir(), "opengrok-routes-"));
+    const file = join(dir, "connections.json");
+    writeFileSync(file, JSON.stringify({ connections: {
+      platform: {
+        url: "https://platform.example/source/",
+        cookieEnv: "PLATFORM_COOKIE",
+        verifySsl: false,
+      },
+      firmware: {
+        url: "https://firmware.example/source/",
+        username: "builder",
+        passwordEnv: "FIRMWARE_PASSWORD",
+        defaultProject: "fw-main",
+      },
+    } }));
+    try {
+      const parsed = parseServerArguments(["--connections-file", file], {
+        PLATFORM_COOKIE: "cas=value",
+        FIRMWARE_PASSWORD: "secret",
+      });
+      expect(parsed.overrides).toEqual({});
+      expect(parsed.connections).toEqual([
+        { name: "platform", overrides: {
+          OPENGROK_BASE_URL: "https://platform.example/source/",
+          OPENGROK_COOKIE: "cas=value",
+          OPENGROK_VERIFY_SSL: "false",
+        } },
+        { name: "firmware", overrides: {
+          OPENGROK_BASE_URL: "https://firmware.example/source/",
+          OPENGROK_USERNAME: "builder",
+          OPENGROK_PASSWORD: "secret",
+          OPENGROK_DEFAULT_PROJECT: "fw-main",
+        } },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects ambiguous direct overrides in multi-server mode", () => {
+    const dir = mkdtempSync(join(tmpdir(), "opengrok-routes-"));
+    const file = join(dir, "connections.json");
+    writeFileSync(file, JSON.stringify({ connections: {
+      one: { url: "https://one.example/source/" },
+      two: { url: "https://two.example/source/" },
+    } }));
+    try {
+      expect(() => parseServerArguments([
+        "--connections-file", file,
+        "--url", "https://override.example/source/",
+      ])).toThrow("cannot be combined with multi-server");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

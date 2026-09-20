@@ -376,6 +376,18 @@ export function parseCompileCommands(
 
   if (!allowedRoots.length) return index;
 
+  // Callers normally pass resolveAllowedRoots() output, but canonicalize here
+  // as well so macOS /var -> /private/var aliases and symlinked roots do not
+  // cause valid compilation entries to be rejected.
+  const canonicalRoots = allowedRoots.flatMap((root) => {
+    try {
+      return [fs.realpathSync(root)];
+    } catch {
+      return [];
+    }
+  });
+  if (!canonicalRoots.length) return index;
+
   // If pre-loaded data provided, use it; otherwise load from disk
   const data = loaded ?? loadCompileCommandsJson(dbPaths);
 
@@ -400,7 +412,7 @@ export function parseCompileCommands(
         ? e.file
         : path.resolve(buildDir, e.file);
 
-      const safeFile = resolveWithin(absFile, allowedRoots);
+      const safeFile = resolveWithin(absFile, canonicalRoots);
       if (!safeFile) continue; // Outside allowed roots — skip
 
       // Prefer `arguments` (array) over `command` (string) per the spec
@@ -416,7 +428,7 @@ export function parseCompileCommands(
         continue;
       }
 
-      const flags = parseFlags(args, buildDir, allowedRoots);
+      const flags = parseFlags(args, buildDir, canonicalRoots);
       index.set(safeFile, {
         file: safeFile,
         directory: buildDir,
@@ -454,7 +466,14 @@ export function inferBuildRoot(
       ) {
         const dir = ((entry as { directory: string }).directory).trim();
         /* v8 ignore start */
-        if (dir) dirs.push(path.resolve(dir));
+        if (dir) {
+          const absolute = path.resolve(dir);
+          try {
+            dirs.push(fs.realpathSync(absolute));
+          } catch {
+            dirs.push(absolute);
+          }
+        }
         /* v8 ignore stop */
       }
     }

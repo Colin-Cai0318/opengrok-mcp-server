@@ -390,8 +390,11 @@ export function parseWebSearchResults(
     /* v8 ignore start -- href always present on file links in test data */
     const href = fileLink.getAttribute("href") ?? "";
     /* v8 ignore stop */
-    // Extract project and path from href: /source/xref/PROJECT/path/to/file
-    const xrefMatch = /\/xref\/([^/]+)(\/.*?)$/.exec(href);
+    // Extract project and path from href: /source/xref/PROJECT/path/to/file.
+    // Query strings such as ?a=true belong to OpenGrok navigation, not the
+    // project-relative path returned to MCP callers.
+    const cleanHref = href.split(/[?#]/, 1)[0];
+    const xrefMatch = /\/xref\/([^/]+)(\/.*?)$/.exec(cleanHref);
     if (!xrefMatch) continue;
 
     const project = xrefMatch[1];
@@ -435,6 +438,13 @@ export function parseWebSearchResults(
       }
     }
     /* v8 ignore stop */
+
+    // Path searches return file rows with an intentionally empty code cell.
+    // Preserve them as location-only matches so find_file/search(path) can
+    // return actual paths instead of claiming that no results were found.
+    if (matches.length === 0 && searchType === "path") {
+      matches.push({ lineNumber: 0, lineContent: "[path match]" });
+    }
 
     if (matches.length > 0) {
       results.push({ project, path: filePath, matches });

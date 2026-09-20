@@ -178,9 +178,10 @@ export function formatSearchResults(
 
   for (const result of results.results) {
     for (const match of result.matches.slice(0, 5)) {
-      lines.push(
-        `${result.path} (${result.project}) L${match.lineNumber}: ${stripHtmlTags(match.lineContent).trim()}`
-      );
+      const content = stripHtmlTags(match.lineContent).trim();
+      lines.push(match.lineNumber > 0
+        ? `${result.path} (${result.project}) L${match.lineNumber}: ${content}`
+        : `${result.path} (${result.project})`);
     }
     if (result.matches.length > 5) {
       lines.push(`  ... +${result.matches.length - 5} more in ${result.path}`);
@@ -905,7 +906,7 @@ export function formatSearchResultsTSV(results: SearchResults): string {
         .trim()
         .replace(/\t/g, "  ")
         .replace(/\n/g, " ");
-      rows.push(`${result.path}\t${result.project}\t${match.lineNumber}\t${content}`);
+      rows.push(`${result.path}\t${result.project}\t${match.lineNumber > 0 ? match.lineNumber : ""}\t${match.lineNumber > 0 ? content : ""}`);
     }
     if (result.matches.length > 5) {
       rows.push(`# ... +${result.matches.length - 5} more in ${result.path}`);

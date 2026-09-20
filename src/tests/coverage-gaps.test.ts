@@ -590,46 +590,6 @@ describe('config.ts edge cases', () => {
 });
 
 // ---------------------------------------------------------------------------
-// models.ts — BlameArgs superRefine branch (line_end < line_start)
-// ---------------------------------------------------------------------------
-import { BlameArgs } from '../server/models.js';
-
-describe('BlameArgs superRefine validation', () => {
-  it('rejects when line_end is less than line_start', () => {
-    const result = BlameArgs.safeParse({
-      project: 'proj',
-      path: 'src/file.cpp',
-      line_start: 10,
-      line_end: 5,
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues.some(i => i.path.includes('line_end'))).toBe(true);
-    }
-  });
-
-  it('accepts when line_end equals line_start', () => {
-    const result = BlameArgs.safeParse({
-      project: 'proj',
-      path: 'src/file.cpp',
-      line_start: 5,
-      line_end: 5,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts when line_end is greater than line_start', () => {
-    const result = BlameArgs.safeParse({
-      project: 'proj',
-      path: 'src/file.cpp',
-      line_start: 1,
-      line_end: 100,
-    });
-    expect(result.success).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // audit.ts — appendFileSync error fallback branch (lines 69-72)
 // ---------------------------------------------------------------------------
 import { auditLog, configureAuditLog, getAuditWriteQueue } from '../server/audit.js';

@@ -66,38 +66,40 @@ All configs use `npx @colin-cai0318/opengrok-mcp-server` as the command — no g
 For a global install (`npm install -g @colin-cai0318/opengrok-mcp-server`), replace `npx @colin-cai0318/opengrok-mcp-server`
 with just `opengrok-mcp`.
 
-### Multiple isolated MCP instances
+### Automatic multi-server project routing
 
-Use a separate stdio process for each OpenGrok URL. This isolates cookies, request caches,
-default projects, and audit output; one process must not multiplex credentials for several
-servers. The fork package is `@colin-cai0318/opengrok-mcp-server`.
+One stdio process can safely hold separate clients, credentials, caches, and rate limiters for
+multiple OpenGrok URLs. It discovers every server's projects before connecting MCP and routes
+each later operation by the exact project name. Duplicate project names fail startup rather
+than selecting an arbitrary server.
 
 Create `opengrok-connections.json` without secrets:
 
 ```json
 {
   "connections": {
-    "platform": { "url": "https://opengrok-platform.example/source/", "cookieEnv": "OPENGROK_PLATFORM_COOKIE" },
-    "firmware": { "url": "https://opengrok-firmware.example/source/", "cookieEnv": "OPENGROK_FIRMWARE_COOKIE" }
+    "platform": { "url": "https://opengrok-platform.example/source/", "cookieEnv": "OPENGROK_PLATFORM_COOKIE", "defaultProject": "platform-main" },
+    "firmware": { "url": "https://opengrok-firmware.example/source/", "username": "builder", "passwordEnv": "OPENGROK_FIRMWARE_PASSWORD" }
   }
 }
 ```
 
-Set `OPENGROK_PLATFORM_COOKIE` and `OPENGROK_FIRMWARE_COOKIE` in the environment inherited
-by the MCP client. Then register two server names with separate arguments. For Codex TOML:
+Set the referenced secret variables in the environment inherited by the MCP client. Register
+one routed server in Codex TOML:
 
 ```toml
-[mcp_servers.opengrok_platform]
+[mcp_servers.opengrok]
 command = "npx"
-args = ["-y", "@colin-cai0318/opengrok-mcp-server", "--connections-file", "C:/secure/opengrok-connections.json", "--connection", "platform"]
-
-[mcp_servers.opengrok_firmware]
-command = "npx"
-args = ["-y", "@colin-cai0318/opengrok-mcp-server", "--connections-file", "C:/secure/opengrok-connections.json", "--connection", "firmware"]
+args = ["-y", "@colin-cai0318/opengrok-mcp-server", "--connections-file", "C:/secure/opengrok-connections.json"]
 ```
 
-For a one-off server, omit the JSON file and pass `--url https://.../source/` directly.
-The URL is configuration metadata; never pass passwords or Cookie values as arguments.
+Searches spanning projects on different servers are fanned out in parallel and merged. File
+content, symbols, directory browsing, dependency traversal, and resource links use the route
+of their exact `project` argument. Configure `defaultProject` on at most one connection.
+
+For a one-off server, omit the JSON file and pass `--url https://.../source/` directly. To
+select one entry from a connections file without routing, add `--connection <name>`. The URL
+is configuration metadata; never pass passwords or Cookie values as arguments.
 
 ### Claude Code
 

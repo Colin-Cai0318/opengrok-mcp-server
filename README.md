@@ -16,7 +16,8 @@
 <summary>📚 Table of Contents</summary>
 
 - [Overview](#overview)
-- [How to Install](#how-to-install)
+- [Installation](#installation)
+- [Multiple OpenGrok URLs](#multiple-opengrok-urls-automatic-project-routing)
 - [Configuration Guide](#configuration-guide)
 - [Prompting Examples](#prompting-examples)
 - [Tool Reference](#tool-reference)
@@ -59,21 +60,33 @@ npx @colin-cai0318/opengrok-mcp-server setup
 
 The wizard stores credentials securely in the OS keychain (macOS Keychain, Windows Credential Manager, Linux libsecret) with an encrypted file fallback for headless Linux.
 
-### Fork package and multiple OpenGrok connections
+## Multiple OpenGrok URLs (automatic project routing)
 
-This fork is prepared for npm publication as `@colin-cai0318/opengrok-mcp-server`. After a successful publication, it can be started without cloning the repository:
+Run one MCP process for two or more OpenGrok servers. Before accepting an MCP connection, the
+process queries every server's project catalog and builds an in-memory `project name → server`
+routing table. Searches are grouped by project owner and sent in parallel; file content, directory,
+symbol, dependency, and resource-link operations go only to the server that owns the exact project.
 
-```bash
-npx -y @colin-cai0318/opengrok-mcp-server --url https://opengrok.example.com/source/
-```
+Multi-URL deployment uses the standalone stdio server. The extension settings UI and `setup`
+wizard configure one URL; for multiple URLs, add the manual MCP server entry shown below.
 
-Until a release is published to npm, the same command can run directly from GitHub (the first run downloads a temporary package, not a source checkout):
+### Deployment requirements
 
-```bash
-npx -y github:Colin-Cai0318/opengrok-mcp-server --url https://opengrok.example.com/source/
-```
+- Node.js 22 or newer is required when running the standalone npm/source build.
+- The machine or container running the MCP process must be able to reach every configured URL.
+- Project names must be globally unique across the configured servers. Duplicate names fail startup
+  because routing them automatically would be ambiguous.
+- Every server must return its project catalog during startup. Startup is all-or-nothing; an
+  unreachable or unauthorized server is reported by connection name.
+- Use an absolute path for the connections file in MCP client configuration. Relative paths are
+  resolved from the MCP process working directory, which varies between clients.
+- Put credentials in environment variables available to the MCP process, not in the JSON file,
+  command arguments, or a repository.
 
-To define several endpoints once, keep secrets in environment variables and put only endpoint metadata in a local file:
+### 1. Create the connections file
+
+Create a private file such as `/opt/opengrok-mcp/connections.json` on Linux/macOS or
+`C:\Users\<you>\.config\opengrok-mcp\connections.json` on Windows:
 
 ```json
 {
@@ -81,24 +94,136 @@ To define several endpoints once, keep secrets in environment variables and put 
     "platform": {
       "url": "https://opengrok-platform.example/source/",
       "cookieEnv": "OPENGROK_PLATFORM_COOKIE",
-      "defaultProject": "platform"
+      "defaultProject": "platform-main"
     },
     "firmware": {
       "url": "https://opengrok-firmware.example/source/",
-      "cookieEnv": "OPENGROK_FIRMWARE_COOKIE"
+      "username": "build-reader",
+      "passwordEnv": "OPENGROK_FIRMWARE_PASSWORD",
+      "verifySsl": true
     }
   }
 }
 ```
 
-Start one MCP process per entry. `--url` values on the command line override the selected connection, so the same package can serve distinct endpoints in parallel:
+Supported fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `url` | Yes | OpenGrok context root, for example `https://host/source/`. Use HTTPS whenever credentials are sent. |
+| `cookieEnv` | No | Name of an environment variable containing the raw Cookie header value, for example `JSESSIONID=...; CASTGC=...`. Cookie authentication takes precedence over Basic authentication. |
+| `username` | No | Basic-auth username. Use together with `passwordEnv`. |
+| `passwordEnv` | No | Name of an environment variable containing the Basic-auth password. |
+| `defaultProject` | No | Project used when a search omits `projects`. Configure this on at most one connection. |
+| `verifySsl` | No | TLS certificate verification; defaults to `true`. Disable only for a trusted internal server with a self-signed certificate. |
+
+Connections may use different authentication methods. Public servers can contain only `url`.
+The names `platform` and `firmware` are diagnostic labels; routing uses the discovered OpenGrok
+project names.
+
+### 2. Provide credentials to the MCP process
+
+For a shell session on Linux/macOS:
 
 ```bash
-npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json --connection platform
-npx -y @colin-cai0318/opengrok-mcp-server --connections-file ./opengrok-connections.json --connection firmware
+export OPENGROK_PLATFORM_COOKIE='JSESSIONID=...; CASTGC=...'
+export OPENGROK_FIRMWARE_PASSWORD='...'
 ```
 
-See [MCP_CLIENTS.md](MCP_CLIENTS.md#multiple-isolated-mcp-instances) for multi-instance client snippets. Do not pass Cookie values with command-line arguments: shell history and process listings can expose them.
+For PowerShell:
+
+```powershell
+$env:OPENGROK_PLATFORM_COOKIE = 'JSESSIONID=...; CASTGC=...'
+$env:OPENGROK_FIRMWARE_PASSWORD = '...'
+```
+
+If the MCP client supports an environment file, keep it outside the repository with permissions
+restricted to the current user:
+
+```dotenv
+OPENGROK_PLATFORM_COOKIE="JSESSIONID=...; CASTGC=..."
+OPENGROK_FIRMWARE_PASSWORD="..."
+```
+
+The environment variable names must exactly match `cookieEnv` and `passwordEnv`. The server exits
+before making requests if a referenced variable is missing.
+
+### 3. Start the routed server
+
+After a release containing multi-URL routing is published:
+
+```bash
+npx -y @colin-cai0318/opengrok-mcp-server --connections-file /opt/opengrok-mcp/connections.json
+```
+
+To test a source checkout of this branch before publication:
+
+```bash
+npm ci
+npm run package
+node /absolute/path/to/opengrok-mcp-server/out/server/main.js \
+  --connections-file /absolute/path/to/connections.json
+```
+
+For an MCP client, register exactly one stdio server. This VS Code example runs the checked-out
+build and loads credentials from a private environment file:
+
+```json
+{
+  "servers": {
+    "opengrok-auto-router": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/absolute/path/to/opengrok-mcp-server/out/server/main.js",
+        "--connections-file",
+        "/absolute/path/to/connections.json"
+      ],
+      "envFile": "/absolute/path/to/opengrok.env"
+    }
+  }
+}
+```
+
+On Windows, use forward slashes in JSON paths, for example
+`C:/Users/me/.config/opengrok-mcp/connections.json`. When using Remote SSH, WSL, a Dev Container,
+or another remote MCP host, Node.js, the built server, connections file, and credentials must all
+exist in that remote environment.
+
+### 4. Verify routing
+
+1. Start the MCP server and check stderr for a line listing every connection name and URL.
+2. Call `opengrok_list_projects` and confirm that projects from every server appear.
+3. Call `opengrok_find_file` with one exact project from each server. Each result should retain the
+   requested project name.
+4. For a cross-server search, pass exact project names in `projects`; the router fans the request out
+   and merges the results.
+
+Do not omit `projects` unless one connection defines `defaultProject`. Unknown project names fail
+with a preview of the discovered catalog instead of being sent to an arbitrary URL.
+
+### Modes and troubleshooting
+
+| Command | Behavior |
+| --- | --- |
+| `--connections-file FILE` | Automatic routing across every entry; requires at least two connections. |
+| `--connections-file FILE --connection NAME` | Select one named entry and use legacy single-server mode. |
+| `--url URL` | Connect directly to one server without a connections file. |
+
+Direct options such as `--url`, `--username`, and `--cookie-env` cannot be combined with automatic
+multi-server mode; put per-server settings in the connections file instead.
+
+| Startup error | Resolution |
+| --- | --- |
+| `requires environment variable` | Define the variable named by `cookieEnv` or `passwordEnv` in the MCP process environment. |
+| `project discovery failed` | Check the named URL, network route, TLS setting, and credentials. |
+| `automatic routing ambiguous` | Two servers expose the same project name; rename/reindex one project or use separate single-server MCP processes. |
+| `Default project ... was not discovered` | Correct or remove `defaultProject`; it must exactly match a discovered project name. |
+| `Direct connection options cannot be combined` | Remove direct CLI options and move the values into the appropriate connection entry. |
+
+See [MCP_CLIENTS.md](MCP_CLIENTS.md#automatic-multi-server-project-routing) for Claude, Codex,
+Cursor, and other client snippets. Windows/VS Code users can also follow the detailed
+[multi-connection guide](docs/VSCODE_NPX_MULTI_CONNECTIONS.md).
 
 ---
 

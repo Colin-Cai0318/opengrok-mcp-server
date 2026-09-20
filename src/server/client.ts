@@ -13,7 +13,6 @@ import { logger } from "./logger.js";
 import type {
   DirectoryEntry,
   FileContent,
-  FileSymbol,
   FileSymbols,
   Project,
   SearchResults,
@@ -421,7 +420,31 @@ export function buildSafeUrl(baseUrl: URL, ...segments: string[]): URL {
 // OpenGrok HTTP Client
 // ---------------------------------------------------------------------------
 
-export class OpenGrokClient {
+/**
+ * Public client contract used by the MCP server and the multi-server router.
+ * Keeping the server dependent on this interface lets a routed client preserve
+ * the exact same tool surface as a single OpenGrok connection.
+ */
+export interface OpenGrokClientLike {
+  search(
+    query: string,
+    searchType?: SearchTypeValue,
+    projects?: string[],
+    maxResults?: number,
+    start?: number,
+    fileType?: string
+  ): Promise<SearchResults>;
+  getFileContent(project: string, path: string, startLine?: number, endLine?: number): Promise<FileContent>;
+  getFileSymbols(project: string, path: string): Promise<FileSymbols>;
+  browseDirectory(project: string, path?: string): Promise<DirectoryEntry[]>;
+  listProjects(filterPattern?: string): Promise<Project[]>;
+  testConnection(): Promise<boolean>;
+  warmCache(): void;
+  getBaseUrl(project?: string): string;
+  close(): Promise<void>;
+}
+
+export class OpenGrokClient implements OpenGrokClientLike {
   private readonly baseUrl: URL;
   private readonly authHeader: string | undefined;
   private readonly verifySsl: boolean;

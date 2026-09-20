@@ -1,6 +1,6 @@
-# VS Code：通过 npm/npx 启动三个独立 OpenGrok MCP 连接
+# VS Code：通过 npm/npx 启动自动路由的 OpenGrok MCP 连接
 
-本配置会启动三个独立的 stdio MCP 进程。每个进程只连接一个 OpenGrok URL、只读取自己的 Cookie，因此缓存、认证和默认项目不会互相串用。
+本配置只启动一个 stdio MCP 进程。进程启动时会并行读取三个 OpenGrok URL 的项目列表，建立“项目名 → 连接”路由；搜索、读取文件、目录浏览与符号查询会自动发往项目所属 URL。每个 URL 仍使用独立客户端、Cookie、缓存和限流器。
 
 | MCP 名称 | Android 版本 | 连接名 |
 | --- | --- | --- |
@@ -8,7 +8,7 @@
 | `opengrok-android-w` | Android 16 | `opengrok-android-w` |
 | `opengrok-android-x` | Android 17 | `opengrok-android-x` |
 
-服务器提示词也遵循此映射：版本不明确时会要求用户指定连接；项目名不明确时会要求提供精确、非空的 OpenGrok project。
+项目名在所有服务器间必须唯一；重复时进程会拒绝启动，避免误路由。项目不明确时应先调用项目列表工具。
 
 ## 1. 先确认 npm 包是否已发布
 
@@ -28,7 +28,7 @@ npm view @colin-cai0318/opengrok-mcp-server version --registry=https://registry.
 `github:Colin-Cai0318/opengrok-mcp-server#main`，例如：
 
 ```json
-["-y", "github:Colin-Cai0318/opengrok-mcp-server#main", "--connections-file", "...", "--connection", "opengrok-android-v"]
+["-y", "github:Colin-Cai0318/opengrok-mcp-server#main", "--connections-file", "..."]
 ```
 
 GitHub 方式适合发布前验证；正式部署应使用已发布、固定版本的 npm 包，例如 `@colin-cai0318/opengrok-mcp-server@9.3.0`。
@@ -42,24 +42,21 @@ GitHub 方式适合发布前验证；正式部署应使用已发布、固定版�
   "connections": {
     "opengrok-android-v": {
       "url": "https://opengrok.example.internal/android-v/",
-      "cookieEnv": "OPENGROK_COOKIE_ANDROID_V",
-      "defaultProject": "android-v"
+      "cookieEnv": "OPENGROK_COOKIE_ANDROID_V"
     },
     "opengrok-android-w": {
       "url": "https://opengrok.example.internal/android-w/",
-      "cookieEnv": "OPENGROK_COOKIE_ANDROID_W",
-      "defaultProject": "android-w"
+      "cookieEnv": "OPENGROK_COOKIE_ANDROID_W"
     },
     "opengrok-android-x": {
       "url": "https://opengrok.example.internal/android-x/",
-      "cookieEnv": "OPENGROK_COOKIE_ANDROID_X",
-      "defaultProject": "android-x"
+      "cookieEnv": "OPENGROK_COOKIE_ANDROID_X"
     }
   }
 }
 ```
 
-`defaultProject` 是可选项。若一个连接中有多个项目且不希望自动选择，请删除该字段；模型会先要求用户提供项目名或调用项目列表工具确认。
+`defaultProject` 是可选项，但整个文件最多只能配置一个。通常建议不配置，让模型使用启动时发现的精确项目名。
 
 ## 3. 单独保存三个 Cookie
 
@@ -75,7 +72,7 @@ OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
 
 - 不要把真实 Cookie 写入 `.vscode/mcp.json`、`connections.json`、代码仓库或命令行参数。
 - 将 `cookies.env` 保留在用户目录，不加入 Git；Windows 上仅授予当前用户读取权限。
-- Cookie 过期后只需更新 `cookies.env`，然后在 VS Code 中重启对应 MCP server。
+- Cookie 过期后只需更新 `cookies.env`，然后在 VS Code 中重启该 MCP server。
 
 ## 4. 配置 VS Code
 
@@ -84,42 +81,14 @@ OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
 ```json
 {
   "servers": {
-    "opengrok-android-v": {
+    "opengrok-auto-router": {
       "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
         "@colin-cai0318/opengrok-mcp-server@9.3.0",
         "--connections-file",
-        "C:/Users/<用户名>/.config/opengrok-mcp/connections.json",
-        "--connection",
-        "opengrok-android-v"
-      ],
-      "envFile": "C:/Users/<用户名>/.config/opengrok-mcp/cookies.env"
-    },
-    "opengrok-android-w": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@colin-cai0318/opengrok-mcp-server@9.3.0",
-        "--connections-file",
-        "C:/Users/<用户名>/.config/opengrok-mcp/connections.json",
-        "--connection",
-        "opengrok-android-w"
-      ],
-      "envFile": "C:/Users/<用户名>/.config/opengrok-mcp/cookies.env"
-    },
-    "opengrok-android-x": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@colin-cai0318/opengrok-mcp-server@9.3.0",
-        "--connections-file",
-        "C:/Users/<用户名>/.config/opengrok-mcp/connections.json",
-        "--connection",
-        "opengrok-android-x"
+        "C:/Users/<用户名>/.config/opengrok-mcp/connections.json"
       ],
       "envFile": "C:/Users/<用户名>/.config/opengrok-mcp/cookies.env"
     }
@@ -127,16 +96,16 @@ OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
 }
 ```
 
-将 `<用户名>`、三个 URL 和项目名改为实际值。将包版本固定为已验证版本，升级时先在一个连接上验证，再同时升级三个条目。
+将 `<用户名>` 和三个 URL 改为实际值。将包版本固定为已验证版本，升级前先在测试环境验证。
 
 如果使用 Remote SSH、Dev Container 或 WSL，MCP 进程运行在远端环境；`connections.json`、`cookies.env`、Node.js 和 `npx` 都必须位于该远端环境中。可通过 `MCP: Open Remote User Configuration` 编辑远端配置。
 
 ## 5. 启动和排错
 
 1. 保存 `mcp.json`，执行 `MCP: List Servers`。
-2. 分别启动三个 `opengrok-android-*` server，确认每一个都为 Running。
-3. 若工具列表仍是旧缓存，执行 `MCP: Reset Cached Tools` 后重启对应 server。
-4. 打开 Chat 的 Agent 模式；查询 Android 15/16/17 时选择对应 MCP server。版本或项目不明确时，先向用户追问，不要猜测。
+2. 启动 `opengrok-auto-router`，确认它为 Running；启动日志应列出三个 URL，项目目录会出现在初始化提示中。
+3. 若工具列表仍是旧缓存，执行 `MCP: Reset Cached Tools` 后重启 server。
+4. 打开 Chat 的 Agent 模式；查询时提供精确项目名，路由器会自动选择 URL。
 
 常见错误：
 
@@ -146,6 +115,7 @@ OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
 | `requires environment variable` | 检查 `cookieEnv` 名称与 `cookies.env` 的变量名完全一致，并重启 server。 |
 | 401/403 | 对应 Android 连接的 Cookie 已过期或没有该 URL 的权限。 |
 | 找不到项目 | 删除错误的 `defaultProject`，调用项目列表工具后使用精确项目名。 |
-| 三个连接串数据 | 确认三个 server 都各自传递了不同的 `--connection`，不要共用一个直接 `--url` 进程。 |
+| 项目名冲突 | 两个服务器暴露了同名项目；调整索引项目名，确保全局唯一后重启。 |
+| 任一服务器发现失败 | 启动会失败并指出连接名；检查该 URL、TLS 和对应 Cookie。 |
 
 VS Code 的 `mcp.json` 支持 `env` 和 `envFile`，并建议不要在配置中硬编码敏感值；相关配置位置和管理命令以 VS Code 官方文档为准：[MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)、[Add and manage MCP servers](https://code.visualstudio.com/docs/agent-customization/mcp-servers)。

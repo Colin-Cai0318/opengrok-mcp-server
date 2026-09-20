@@ -6,8 +6,9 @@
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
-import { OpenGrokClient } from "./client.js";
-import { loadConfig } from "./config.js";
+import { OpenGrokClient, type OpenGrokClientLike } from "./client.js";
+import { loadConfig, type Config } from "./config.js";
+import { OpenGrokRoutingClient } from "./routing-client.js";
 import { logger } from "./logger.js";
 import { runServer } from "./server.js";
 import { MemoryBank } from "./memory-bank.js";
@@ -124,8 +125,45 @@ if (firstArg === "setup" || firstArg === "--setup") {
       process.exit(0);
       return;
     }
-    const config = resolveConfig(parsedArgs.overrides);
-    const client = new OpenGrokClient(config);
+    let config: Config;
+    let client: OpenGrokClientLike;
+    let configLoader: () => Config = resolveConfig;
+
+    if (parsedArgs.connections) {
+      const resolved = parsedArgs.connections.map((connection) => ({
+        name: connection.name,
+        config: resolveConfig(connection.overrides),
+      }));
+      const defaults = [...new Set(
+        resolved
+          .map(({ config: connectionConfig }) => connectionConfig.OPENGROK_DEFAULT_PROJECT.trim())
+          .filter(Boolean)
+      )];
+      if (defaults.length > 1) {
+        throw new Error(
+          `Multi-server mode has more than one default project (${defaults.join(", ")}). ` +
+          "Configure at most one defaultProject across all connections."
+        );
+      }
+
+      config = Object.freeze({
+        ...resolved[0].config,
+        OPENGROK_DEFAULT_PROJECT: defaults[0] ?? "",
+      });
+      client = await OpenGrokRoutingClient.connect(
+        resolved.map(({ name, config: connectionConfig }) => ({
+          name,
+          client: new OpenGrokClient(connectionConfig),
+        })),
+        config.OPENGROK_DEFAULT_PROJECT
+      );
+      // Connection-file changes require a process restart; keep SIGHUP focused
+      // on the already-resolved runtime flags instead of losing route context.
+      configLoader = () => config;
+    } else {
+      config = resolveConfig(parsedArgs.overrides);
+      client = new OpenGrokClient(config);
+    }
 
     // Configure audit log file if set
     if (config.OPENGROK_AUDIT_LOG_FILE) {
@@ -149,7 +187,7 @@ if (firstArg === "setup" || firstArg === "--setup") {
     const memoryBank = new MemoryBank(memoryBankDir);
     await memoryBank.ensureDir();
 
-    await runServer(client, config, memoryBank, resolveConfig);
+    await runServer(client, config, memoryBank, configLoader);
   }
 
   main().catch((err) => {

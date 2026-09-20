@@ -28,7 +28,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Worker } from "worker_threads";
 import type { WorkerHandle } from "./worker-pool.js";
-import type { OpenGrokClient } from "./client.js";
+import type { OpenGrokClientLike } from "./client.js";
 import type { MemoryBank } from "./memory-bank.js";
 import type { HealthAPIResult } from "./api-types.js";
 import { logger } from "./logger.js";
@@ -308,7 +308,7 @@ export interface SandboxOpts {
 const MAX_SANDBOX_WRITES_PER_EXECUTION = 5;
 
 export function createSandboxAPI(
-  client: OpenGrokClient,
+  client: OpenGrokClientLike,
   memoryBank: MemoryBank,
   sandboxOpts: SandboxOpts = {}
 ): SandboxAPI {

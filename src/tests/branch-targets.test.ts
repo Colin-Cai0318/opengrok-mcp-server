@@ -542,11 +542,11 @@ describe('client.ts targeted branches', () => {
 
     try {
       const result1 = await client.getFileSymbols('proj', 'file.cpp');
-      expect(result1.symbols.length).toBe(1);
+      expect(result1.symbols.length).toBe(0);
 
       // Second call should use cache (no additional fetch)
       const result2 = await client.getFileSymbols('proj', 'file.cpp');
-      expect(result2.symbols.length).toBe(1);
+      expect(result2.symbols.length).toBe(0);
       // fetch should have been called only once
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     } finally {

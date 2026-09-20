@@ -5,6 +5,7 @@ export interface NamedConnection {
   url: string;
   username?: string;
   cookieEnv?: string;
+  passwordEnv?: string;
   defaultProject?: string;
   verifySsl?: boolean;
 }
@@ -15,12 +16,19 @@ interface ConnectionsDocument {
 
 export interface ServerArguments {
   overrides: Record<string, string>;
+  connections?: ResolvedConnection[];
   help: boolean;
+}
+
+export interface ResolvedConnection {
+  name: string;
+  overrides: Record<string, string>;
 }
 
 const HELP = `OpenGrok MCP Server\n\n` +
   `Usage:\n` +
   `  opengrok-mcp-server --url <OpenGrok URL> [--cookie-env <ENV_NAME>]\n` +
+  `  opengrok-mcp-server --connections-file <file.json>\n` +
   `  opengrok-mcp-server --connections-file <file.json> --connection <name>\n\n` +
   `Options:\n` +
   `  --url <url>                 Override OPENGROK_BASE_URL for this MCP process\n` +
@@ -28,8 +36,8 @@ const HELP = `OpenGrok MCP Server\n\n` +
   `  --cookie-env <environment>  Read Cookie/CAS credentials from this environment variable\n` +
   `  --default-project <project> Override OPENGROK_DEFAULT_PROJECT\n` +
   `  --no-verify-ssl             Disable TLS verification for this MCP process\n` +
-  `  --connections-file <file>   JSON file containing named, reusable connections\n` +
-  `  --connection <name>         Select one connection from --connections-file\n`;
+  `  --connections-file <file>   Route projects across all named connections in this JSON file\n` +
+  `  --connection <name>         Select only one connection (legacy single-server mode)\n`;
 
 function requireValue(args: string[], index: number, option: string): string {
   const value = args[index + 1];
@@ -37,7 +45,7 @@ function requireValue(args: string[], index: number, option: string): string {
   return value;
 }
 
-function readNamedConnection(filePath: string, name: string, environment: NodeJS.ProcessEnv): Record<string, string> {
+function readConnections(filePath: string, environment: NodeJS.ProcessEnv): ResolvedConnection[] {
   let document: ConnectionsDocument;
   try {
     document = JSON.parse(readFileSync(resolve(filePath), "utf8")) as ConnectionsDocument;
@@ -45,24 +53,48 @@ function readNamedConnection(filePath: string, name: string, environment: NodeJS
     throw new Error(`Cannot read OpenGrok connections file "${filePath}": ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  const connection = document?.connections?.[name];
-  if (!connection || typeof connection !== "object") {
-    throw new Error(`Connection "${name}" was not found in "${filePath}"`);
-  }
-  if (typeof connection.url !== "string" || !connection.url.trim()) {
-    throw new Error(`Connection "${name}" must define a non-empty "url"`);
+  if (!document?.connections || typeof document.connections !== "object" || Array.isArray(document.connections)) {
+    throw new Error(`OpenGrok connections file "${filePath}" must contain a "connections" object`);
   }
 
-  const overrides: Record<string, string> = { OPENGROK_BASE_URL: connection.url };
-  if (connection.username) overrides.OPENGROK_USERNAME = connection.username;
-  if (connection.defaultProject) overrides.OPENGROK_DEFAULT_PROJECT = connection.defaultProject;
-  if (connection.verifySsl === false) overrides.OPENGROK_VERIFY_SSL = "false";
-  if (connection.cookieEnv) {
-    const cookie = environment[connection.cookieEnv];
-    if (!cookie) throw new Error(`Connection "${name}" requires environment variable "${connection.cookieEnv}"`);
-    overrides.OPENGROK_COOKIE = cookie;
+  const entries = Object.entries(document.connections);
+  if (entries.length === 0) {
+    throw new Error(`OpenGrok connections file "${filePath}" does not define any connections`);
   }
-  return overrides;
+
+  return entries.map(([name, connection]) => {
+    if (!name.trim()) throw new Error(`Connection names in "${filePath}" must not be empty`);
+    if (!connection || typeof connection !== "object") {
+      throw new Error(`Connection "${name}" in "${filePath}" must be an object`);
+    }
+    if (typeof connection.url !== "string" || !connection.url.trim()) {
+      throw new Error(`Connection "${name}" must define a non-empty "url"`);
+    }
+    try {
+      const parsed = new URL(connection.url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("unsupported protocol");
+    } catch {
+      throw new Error(`Connection "${name}" must define an absolute HTTP(S) "url"`);
+    }
+
+    const overrides: Record<string, string> = { OPENGROK_BASE_URL: connection.url };
+    if (connection.username) overrides.OPENGROK_USERNAME = connection.username;
+    if (connection.defaultProject) overrides.OPENGROK_DEFAULT_PROJECT = connection.defaultProject;
+    if (typeof connection.verifySsl === "boolean") {
+      overrides.OPENGROK_VERIFY_SSL = String(connection.verifySsl);
+    }
+    if (connection.cookieEnv) {
+      const cookie = environment[connection.cookieEnv];
+      if (!cookie) throw new Error(`Connection "${name}" requires environment variable "${connection.cookieEnv}"`);
+      overrides.OPENGROK_COOKIE = cookie;
+    }
+    if (connection.passwordEnv) {
+      const password = environment[connection.passwordEnv];
+      if (!password) throw new Error(`Connection "${name}" requires environment variable "${connection.passwordEnv}"`);
+      overrides.OPENGROK_PASSWORD = password;
+    }
+    return { name, overrides };
+  });
 }
 
 /** Parse server-only arguments without emitting to stdout (stdio remains MCP-only). */
@@ -110,13 +142,24 @@ export function parseServerArguments(args: string[], environment: NodeJS.Process
   }
 
   if (help) return { overrides: {}, help: true };
-  if (Boolean(connectionsFile) !== Boolean(connectionName)) {
-    throw new Error("--connections-file and --connection must be used together");
+  if (connectionName && !connectionsFile) {
+    throw new Error("--connection requires --connections-file");
   }
-  const fromNamedConnection = connectionsFile && connectionName
-    ? readNamedConnection(connectionsFile, connectionName, environment)
-    : {};
-  return { overrides: { ...fromNamedConnection, ...direct }, help: false };
+  if (!connectionsFile) return { overrides: direct, help: false };
+
+  const connections = readConnections(connectionsFile, environment);
+  if (connectionName) {
+    const selected = connections.find((connection) => connection.name === connectionName);
+    if (!selected) throw new Error(`Connection "${connectionName}" was not found in "${connectionsFile}"`);
+    return { overrides: { ...selected.overrides, ...direct }, help: false };
+  }
+  if (Object.keys(direct).length > 0) {
+    throw new Error(
+      "Direct connection options cannot be combined with multi-server --connections-file mode; " +
+      "put per-server URL and credentials in the connections file"
+    );
+  }
+  return { overrides: {}, connections, help: false };
 }
 
 export function serverHelp(): string {

@@ -234,6 +234,24 @@ describe('parseWebSearchResults', () => {
     expect(results.results).toEqual([]);
     expect(results.totalCount).toBe(0);
   });
+
+  it('preserves location-only rows returned by path searches', () => {
+    const html = `
+      <div id="results">
+        <p class="pagetitle">Searched path:readme (Results 1 – 1 of 1)</p>
+        <table><tr>
+          <td class="q"></td>
+          <td class="f"><a href="/source/xref/core/docs/README?a=true">README</a></td>
+          <td><code class="con"></code></td>
+        </tr></table>
+      </div>`;
+    const results = parseWebSearchResults(html, 'path', 'README');
+    expect(results.results).toEqual([{
+      project: 'core',
+      path: '/docs/README',
+      matches: [{ lineNumber: 0, lineContent: '[path match]' }],
+    }]);
+  });
 });
 
 // ---------------------------------------------------------------------------
