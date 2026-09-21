@@ -19,7 +19,8 @@ if (!ver) {
 
 const ROOT = path.resolve(__dirname, '..');
 const log = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
-const base = 'https://github.com/IcyHot09/opengrok-mcp-server';
+const repository = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).repository.url;
+const base = repository.replace(/^git\+/, '').replace(/\.git$/, '');
 
 const start = log.indexOf('## [' + ver + ']');
 if (start === -1) {
@@ -27,7 +28,9 @@ if (start === -1) {
   process.exit(1);
 }
 const end = log.indexOf('\n## [', start + 1);
-const section = (end === -1 ? log.slice(start) : log.slice(start, end)).trim();
+const section = (end === -1 ? log.slice(start) : log.slice(start, end))
+  .trim()
+  .replace(/\n---$/, '');
 
 const body = [
   "## 🚀 What's New",

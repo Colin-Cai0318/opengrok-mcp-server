@@ -63,6 +63,28 @@ Native MCP integration, OS keychain credentials, 8 OpenGrok tools, SSRF protecti
 
 ---
 
+## [9.4.0] - 2026-09-21
+
+### Added
+
+- Multi-server project discovery and automatic project-to-server routing from one MCP process.
+- Per-connection proxy and forced-direct network policies for mixed intranet topologies.
+- Deterministic round-robin merging for searches spanning multiple OpenGrok servers.
+- Reproducible one-command Linux team deployment packaging with checksums and routed VS Code configuration.
+
+### Changed
+
+- Team deployments now default to the 5-tool Code Mode surface.
+- MCP startup instructions no longer embed the full project catalog; exact project names and the full Code Mode API are loaded only when needed.
+- The deployment bundle now contains one concise README instead of separate long-form deployment and test documents.
+
+### Fixed
+
+- Connection-level direct routes are isolated from process-wide proxy settings.
+- Multi-server searches preserve a fair result mix instead of allowing the first server to consume the result limit.
+
+---
+
 ## [9.2.14] - 2026-04-11
 
 ### 🐛 Bug Fix — Correct `fileType` API Parameter Values + API Spec Accuracy
