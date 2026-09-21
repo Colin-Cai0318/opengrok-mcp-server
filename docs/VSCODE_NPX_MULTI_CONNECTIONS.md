@@ -69,7 +69,7 @@ GitHub 方式适合发布前验证；正式部署应使用已发布、固定版�
 OPENGROK_COOKIE_ANDROID_V=Cookie_Android_15_Only
 OPENGROK_COOKIE_ANDROID_W=Cookie_Android_16_Only
 OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
-OPENGROK_PROXY_ANDROID_VW=http://10.108.157.36:80
+OPENGROK_PROXY_ANDROID_VW=http://proxy.example.com:8080
 ```
 
 注意：

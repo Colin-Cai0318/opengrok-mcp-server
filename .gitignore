@@ -30,6 +30,8 @@ coverage/
 
 # Test output
 test-output.txt
+dist/
+deploy/team/team-config.local.json
 
 # Plans and specs
 plans/

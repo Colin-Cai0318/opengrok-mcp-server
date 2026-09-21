@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "opengrok-android-routing": {
+      "type": "stdio",
+      "command": "${userHome}/.local/bin/opengrok-mcp-wrapper.sh",
+      "args": [],
+      "env": { "OPENGROK_CODE_MODE": "false" }
+    }
+  },
+  "inputs": []
+}

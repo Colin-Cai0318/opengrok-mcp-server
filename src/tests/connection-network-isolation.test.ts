@@ -8,7 +8,7 @@ import { OpenGrokClient } from "../server/client.js";
 import { loadConfig } from "../server/config.js";
 
 const BAD_PROXY = "http://127.0.0.1:9";
-const GOOD_PROXY = "http://10.108.157.36:80";
+const GOOD_PROXY = "http://proxy.example.com:8080";
 
 function writeConnections(connections: Record<string, Record<string, unknown>>): {
   directory: string;

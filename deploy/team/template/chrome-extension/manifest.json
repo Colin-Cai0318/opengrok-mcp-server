@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "OpenGrok Cookie Sync",
+  "version": "2.1.0",
+  "description": "Automatically synchronize cookies for the approved OpenGrok instances to the local MCP helper.",
+  "permissions": ["cookies", "alarms"],
+  "host_permissions": [
+    "__OPENGROK_V_ORIGIN__/*",
+    "__OPENGROK_W_ORIGIN__/*",
+    "__OPENGROK_X_ORIGIN__/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "OpenGrok Cookie Sync" }
+}
