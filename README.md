@@ -94,13 +94,15 @@ Create a private file such as `/opt/opengrok-mcp/connections.json` on Linux/macO
     "platform": {
       "url": "https://opengrok-platform.example/source/",
       "cookieEnv": "OPENGROK_PLATFORM_COOKIE",
+      "proxyEnv": "OPENGROK_PLATFORM_PROXY",
       "defaultProject": "platform-main"
     },
     "firmware": {
       "url": "https://opengrok-firmware.example/source/",
       "username": "build-reader",
       "passwordEnv": "OPENGROK_FIRMWARE_PASSWORD",
-      "verifySsl": true
+      "verifySsl": true,
+      "direct": true
     }
   }
 }
@@ -116,6 +118,8 @@ Supported fields:
 | `passwordEnv` | No | Name of an environment variable containing the Basic-auth password. |
 | `defaultProject` | No | Project used when a search omits `projects`. Configure this on at most one connection. |
 | `verifySsl` | No | TLS certificate verification; defaults to `true`. Disable only for a trusted internal server with a self-signed certificate. |
+| `proxyEnv` | No | Name of an environment variable containing the proxy URL. The proxy applies only to this connection. |
+| `direct` | No | Set to `true` to ignore process-level `HTTP_PROXY`/`HTTPS_PROXY` for this connection. Cannot be combined with `proxyEnv`. |
 
 Connections may use different authentication methods. Public servers can contain only `url`.
 The names `platform` and `firmware` are diagnostic labels; routing uses the discovered OpenGrok
@@ -127,6 +131,7 @@ For a shell session on Linux/macOS:
 
 ```bash
 export OPENGROK_PLATFORM_COOKIE='JSESSIONID=...; CASTGC=...'
+export OPENGROK_PLATFORM_PROXY='http://proxy.example:8080'
 export OPENGROK_FIRMWARE_PASSWORD='...'
 ```
 
@@ -134,6 +139,7 @@ For PowerShell:
 
 ```powershell
 $env:OPENGROK_PLATFORM_COOKIE = 'JSESSIONID=...; CASTGC=...'
+$env:OPENGROK_PLATFORM_PROXY = 'http://proxy.example:8080'
 $env:OPENGROK_FIRMWARE_PASSWORD = '...'
 ```
 
@@ -142,11 +148,12 @@ restricted to the current user:
 
 ```dotenv
 OPENGROK_PLATFORM_COOKIE="JSESSIONID=...; CASTGC=..."
+OPENGROK_PLATFORM_PROXY="http://proxy.example:8080"
 OPENGROK_FIRMWARE_PASSWORD="..."
 ```
 
-The environment variable names must exactly match `cookieEnv` and `passwordEnv`. The server exits
-before making requests if a referenced variable is missing.
+The environment variable names must exactly match `cookieEnv`, `passwordEnv`, and `proxyEnv`. The
+server exits before making requests if a referenced variable is missing.
 
 ### 3. Start the routed server
 
@@ -197,10 +204,13 @@ exist in that remote environment.
 3. Call `opengrok_find_file` with one exact project from each server. Each result should retain the
    requested project name.
 4. For a cross-server search, pass exact project names in `projects`; the router fans the request out
-   and merges the results.
+   and merges the results in deterministic round-robin order so every matching server is represented.
 
 Do not omit `projects` unless one connection defines `defaultProject`. Unknown project names fail
 with a preview of the discovered catalog instead of being sent to an arbitrary URL.
+
+Cross-server pagination currently applies `start_index` independently to each server before merging;
+it is not a global offset over the combined result stream. Single-server pagination is unchanged.
 
 ### Modes and troubleshooting
 
@@ -215,7 +225,8 @@ multi-server mode; put per-server settings in the connections file instead.
 
 | Startup error | Resolution |
 | --- | --- |
-| `requires environment variable` | Define the variable named by `cookieEnv` or `passwordEnv` in the MCP process environment. |
+| `requires environment variable` | Define the variable named by `cookieEnv`, `passwordEnv`, or `proxyEnv` in the MCP process environment. |
+| `cannot configure both proxyEnv and direct` | Choose a connection-specific proxy or forced direct mode for that entry, not both. |
 | `project discovery failed` | Check the named URL, network route, TLS setting, and credentials. |
 | `automatic routing ambiguous` | Two servers expose the same project name; rename/reindex one project or use separate single-server MCP processes. |
 | `Default project ... was not discovered` | Correct or remove `defaultProject`; it must exactly match a discovered project name. |

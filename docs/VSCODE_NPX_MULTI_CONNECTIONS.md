@@ -42,15 +42,18 @@ GitHub 方式适合发布前验证；正式部署应使用已发布、固定版�
   "connections": {
     "opengrok-android-v": {
       "url": "https://opengrok.example.internal/android-v/",
-      "cookieEnv": "OPENGROK_COOKIE_ANDROID_V"
+      "cookieEnv": "OPENGROK_COOKIE_ANDROID_V",
+      "proxyEnv": "OPENGROK_PROXY_ANDROID_VW"
     },
     "opengrok-android-w": {
       "url": "https://opengrok.example.internal/android-w/",
-      "cookieEnv": "OPENGROK_COOKIE_ANDROID_W"
+      "cookieEnv": "OPENGROK_COOKIE_ANDROID_W",
+      "proxyEnv": "OPENGROK_PROXY_ANDROID_VW"
     },
     "opengrok-android-x": {
       "url": "https://opengrok.example.internal/android-x/",
-      "cookieEnv": "OPENGROK_COOKIE_ANDROID_X"
+      "cookieEnv": "OPENGROK_COOKIE_ANDROID_X",
+      "direct": true
     }
   }
 }
@@ -58,7 +61,7 @@ GitHub 方式适合发布前验证；正式部署应使用已发布、固定版�
 
 `defaultProject` 是可选项，但整个文件最多只能配置一个。通常建议不配置，让模型使用启动时发现的精确项目名。
 
-## 3. 单独保存三个 Cookie
+## 3. 单独保存 Cookie 和 Proxy
 
 新建同目录文件 `C:\Users\<用户名>\.config\opengrok-mcp\cookies.env`：
 
@@ -66,11 +69,13 @@ GitHub 方式适合发布前验证；正式部署应使用已发布、固定版�
 OPENGROK_COOKIE_ANDROID_V=Cookie_Android_15_Only
 OPENGROK_COOKIE_ANDROID_W=Cookie_Android_16_Only
 OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
+OPENGROK_PROXY_ANDROID_VW=http://proxy.example.com:8080
 ```
 
 注意：
 
 - 不要把真实 Cookie 写入 `.vscode/mcp.json`、`connections.json`、代码仓库或命令行参数。
+- `proxyEnv` 只影响引用它的连接；`direct: true` 会显式屏蔽进程继承的 `HTTP_PROXY` 和 `HTTPS_PROXY`。同一个连接不能同时配置两者。
 - 将 `cookies.env` 保留在用户目录，不加入 Git；Windows 上仅授予当前用户读取权限。
 - Cookie 过期后只需更新 `cookies.env`，然后在 VS Code 中重启该 MCP server。
 
@@ -113,6 +118,7 @@ OPENGROK_COOKIE_ANDROID_X=Cookie_Android_17_Only
 | --- | --- |
 | `npx` 404 | 先运行第 1 节的 `npm view`；未发布时使用 GitHub 临时包，或等待/执行 npm 发布。 |
 | `requires environment variable` | 检查 `cookieEnv` 名称与 `cookies.env` 的变量名完全一致，并重启 server。 |
+| `cannot configure both proxyEnv and direct` | 同一个连接只保留 `proxyEnv` 或 `direct: true` 其中之一。 |
 | 401/403 | 对应 Android 连接的 Cookie 已过期或没有该 URL 的权限。 |
 | 找不到项目 | 删除错误的 `defaultProject`，调用项目列表工具后使用精确项目名。 |
 | 项目名冲突 | 两个服务器暴露了同名项目；调整索引项目名，确保全局唯一后重启。 |

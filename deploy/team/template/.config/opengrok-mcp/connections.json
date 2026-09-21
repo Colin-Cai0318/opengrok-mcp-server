@@ -1,0 +1,22 @@
+{
+  "connections": {
+    "opengrok-android-v": {
+      "url": "__OPENGROK_V_URL__",
+      "cookieEnv": "OPENGROK_COOKIE_V",
+      "proxyEnv": "OPENGROK_PROXY_VW",
+      "verifySsl": true
+    },
+    "opengrok-android-w": {
+      "url": "__OPENGROK_W_URL__",
+      "cookieEnv": "OPENGROK_COOKIE_W",
+      "proxyEnv": "OPENGROK_PROXY_VW",
+      "verifySsl": true
+    },
+    "opengrok-android-x": {
+      "url": "__OPENGROK_X_URL__",
+      "cookieEnv": "OPENGROK_COOKIE_X",
+      "direct": true,
+      "verifySsl": true
+    }
+  }
+}

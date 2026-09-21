@@ -20,6 +20,30 @@ interface DiscoveredRoute extends OpenGrokRouteConnection {
 
 const MAX_FILTER_LENGTH = 100;
 
+function mergeResultsRoundRobin(
+  groups: SearchResults[],
+  maxResults: number
+): SearchResults["results"] {
+  const merged: SearchResults["results"] = [];
+  let resultIndex = 0;
+
+  while (merged.length < maxResults) {
+    let added = false;
+    for (const group of groups) {
+      const result = group.results[resultIndex];
+      if (result) {
+        merged.push(result);
+        added = true;
+        if (merged.length >= maxResults) break;
+      }
+    }
+    if (!added) break;
+    resultIndex += 1;
+  }
+
+  return merged;
+}
+
 /**
  * One logical OpenGrok client backed by multiple independently authenticated
  * servers. Project ownership is discovered before the MCP transport connects,
@@ -158,7 +182,7 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
         route.client.search(query, searchType, routedProjects, maxResults, start, fileType)
       )
     );
-    const mergedResults = results.flatMap((result) => result.results).slice(0, maxResults);
+    const mergedResults = mergeResultsRoundRobin(results, maxResults);
     return {
       query,
       searchType,

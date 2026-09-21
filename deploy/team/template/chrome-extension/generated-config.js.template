@@ -1,0 +1,4 @@
+globalThis.OPENGROK_SYNC_CONFIG = {
+  helperUrl: "http://127.0.0.1:8765",
+  helperToken: "__HELPER_TOKEN__"
+};
