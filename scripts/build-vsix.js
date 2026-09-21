@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const readmePath = path.join(__dirname, '..', 'README.md');
 const backupPath = path.join(__dirname, '..', 'README.md.bak');
@@ -29,18 +29,28 @@ try {
 
     fs.writeFileSync(readmePath, strippedReadme);
 
-    // 3b. Temporarily remove "files" field — vsce 3.x errors if both .vscodeignore
-    // AND "files" are present. "files" is for npm publish only.
+    // 3b. VSCE requires an unscoped extension name and rejects manifests that
+    // contain both .vscodeignore and npm's "files" allowlist. These changes are
+    // packaging-only; the original scoped npm manifest is restored in finally.
     const pkgJson = JSON.parse(originalPkg);
-    if (pkgJson.files) {
-        const pkgCopy = Object.assign({}, pkgJson);
-        delete pkgCopy.files;
-        fs.writeFileSync(pkgPath, JSON.stringify(pkgCopy, null, 2) + '\n');
-    }
+    const pkgCopy = Object.assign({}, pkgJson, { name: 'opengrok-mcp-server' });
+    delete pkgCopy.files;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkgCopy, null, 2) + '\n');
+
+    const repositoryUrl = typeof pkgJson.repository === 'string'
+        ? pkgJson.repository
+        : pkgJson.repository.url;
+    const repositoryBase = repositoryUrl.replace(/^git\+/, '').replace(/\.git$/, '');
+    const rawContentBase = repositoryBase.replace('https://github.com/', 'https://raw.githubusercontent.com/') + '/main';
 
     // 4. Run vsce package
     console.log('Running vsce package...');
-    execSync('npx @vscode/vsce package --baseContentUrl https://raw.githubusercontent.com/IcyHot09/opengrok-mcp-server/main --baseImagesUrl https://raw.githubusercontent.com/IcyHot09/opengrok-mcp-server/main', { stdio: 'inherit' });
+    execFileSync('npx', [
+        '@vscode/vsce',
+        'package',
+        '--baseContentUrl', rawContentBase,
+        '--baseImagesUrl', rawContentBase,
+    ], { stdio: 'inherit' });
 
     console.log('VSIX packaging completed successfully.');
 

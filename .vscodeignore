@@ -14,6 +14,7 @@ package-lock.json
 # Exclude extra documentation
 CONTRIBUTING.md
 CHANGELOG.md
+MCP_CLIENTS.md
 
 # Exclude backups
 *.bak
@@ -44,6 +45,11 @@ eslint.config.mjs
 
 # Exclude standalone scripts
 scripts/
+
+# Exclude team deployment sources and generated release artifacts. They are
+# distributed separately and may contain machine-local, gitignored config.
+deploy/
+dist/
 
 # Exclude evaluation / skills / local docs
 evaluation.xml
