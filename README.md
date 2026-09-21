@@ -336,7 +336,7 @@ Set `OPENGROK_CODE_MODE=true` to switch to a 5-tool interface optimised for mult
 
 | Tool | Purpose |
 | ---- | ------- |
-| `opengrok_api` | Get the full API spec (call once at session start). With `OPENGROK_ENABLE_ELICITATION=true`, also prompts the user to select a working project if none is configured. |
+| `opengrok_api` | Get the full API spec and project catalog on demand. Call it only when the project or method syntax is unknown. With `OPENGROK_ENABLE_ELICITATION=true`, it can also prompt for a working project. |
 | `opengrok_execute` | Run JavaScript in a sandboxed QuickJS VM with access to all OpenGrok operations via `env.opengrok.*` |
 
 All `env.opengrok.*` calls appear **synchronous** inside your code — the sandbox bridges async HTTP calls transparently using a SharedArrayBuffer + Atomics channel. Token savings of 80–95% are typical for complex investigations.
@@ -383,7 +383,7 @@ Access via `env.opengrok.readMemory(filename)` / `env.opengrok.writeMemory(filen
 
 When `OPENGROK_ENABLE_ELICITATION=true`, the server uses MCP Elicitation in two places:
 
-1. **Session start** — `opengrok_api` (Code Mode) prompts the user to select a working project if no `OPENGROK_DEFAULT_PROJECT` is configured and more than one project exists.
+1. **On-demand project selection** — `opengrok_api` (Code Mode) prompts the user to select a working project when invoked, if no `OPENGROK_DEFAULT_PROJECT` is configured and more than one project exists.
 2. **Mid-execution** — Sandbox JS can call `env.opengrok.elicit(message, schema)` to ask the user to choose between multiple matching files, revisions, or projects at any point during execution.
 
 Requires a client that supports MCP Elicitation:
@@ -497,7 +497,7 @@ For the standalone server (`npx @colin-cai0318/opengrok-mcp-server` or Claude Co
 
 | Variable | Values | Description |
 | :--- | :--- | :--- |
-| `OPENGROK_ENABLE_ELICITATION` | `true` / `false` (default: `false`) | Enable project picker at `opengrok_api` startup (Code Mode) and `env.opengrok.elicit()` in sandbox. Requires a supporting MCP client. |
+| `OPENGROK_ENABLE_ELICITATION` | `true` / `false` (default: `false`) | Enable the on-demand project picker in `opengrok_api` (Code Mode) and `env.opengrok.elicit()` in sandbox. Requires a supporting MCP client. |
 | `OPENGROK_ENABLE_FILES_API` | `true` / `false` (default: `false`) | Enable FileReferenceCache for `investigation-log.md` (SHA-256 content-addressed) |
 | `OPENGROK_SAMPLING_MODEL` | string | Model preference for MCP Sampling (error explanation, graph summarization) |
 | `OPENGROK_SAMPLING_MAX_TOKENS` | integer (default: `256`, max: `4096`) | Token budget for MCP Sampling responses |

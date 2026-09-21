@@ -37,7 +37,7 @@ The generated archive contains:
 - connection-level V/W proxy and X direct configuration;
 - the rootless Cookie Helper and Chrome extension;
 - one routed VS Code/HyperCode MCP registration;
-- a live routing smoke test and intranet verification checklist;
+- a live routing smoke test and concise deployment README;
 - file-level and ZIP-level SHA256 checksums.
 
 Never add generated `helper.token`, `cookies.json`, `opengrok.env`, `*.cookie`, or a machine-bound `generated-config.js` to the template.

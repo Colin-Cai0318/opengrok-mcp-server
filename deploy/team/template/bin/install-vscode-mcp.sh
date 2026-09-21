@@ -41,7 +41,7 @@ servers[routed_name] = {
     "type": "stdio",
     "command": wrapper,
     "args": [],
-    "env": {"OPENGROK_CODE_MODE": "false"},
+    "env": {"OPENGROK_CODE_MODE": "true"},
 }
 document.setdefault("inputs", [])
 path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -83,7 +83,7 @@ print(json.dumps({
     "type": "stdio",
     "command": wrapper,
     "args": [],
-    "env": {"OPENGROK_CODE_MODE": "false"},
+    "env": {"OPENGROK_CODE_MODE": "true"},
 }, separators=(",", ":")))
 PY
 )"

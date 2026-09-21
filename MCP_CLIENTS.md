@@ -421,8 +421,8 @@ MCP JSON-RPC traffic goes to stdout; server logs go to stderr.
 ## Prompt Caching
 
 Claude Code and Claude.ai automatically cache the MCP server's system prompt
-(SERVER_INSTRUCTIONS, ~310 tokens). This means:
-- The first call in a session pays the full token cost for SERVER_INSTRUCTIONS
+(compact SERVER_INSTRUCTIONS; the project catalog is not embedded at startup). This means:
+- The first call in a session pays only the bounded instruction cost
 - Subsequent calls in the same session reuse the cached version at ~10% of the cost
 - No configuration needed — automatic for supported clients
 

@@ -207,41 +207,37 @@ const VERSION = (typeof __VERSION__ !== "undefined"
 // Server instructions (opengrok_ prefixed tool names)
 // ---------------------------------------------------------------------------
 
-export const SERVER_INSTRUCTIONS_TEMPLATE = `You are connected to an OpenGrok code search MCP server.
-
-## CONNECTION
-Route Android 15 → opengrok-android-v, Android 16 → opengrok-android-w, Android 17 → opengrok-android-x. If Android version or connection is unclear, ask; never guess.
-
-## AVAILABLE PROJECTS
+export const SERVER_INSTRUCTIONS_TEMPLATE = `OpenGrok code search.
 {{PROJECT_STATUS}}
-Use only an exact project name shown above, returned by opengrok_list_projects, or supplied by the user. Every code query needs a non-empty project/projects array unless a default project is explicitly configured. If uncertain, call opengrok_list_projects or ask; never guess.
-
-## SESSION
 {{MEMORY_STATUS}}
-Use opengrok_index_health for connectivity/latency and opengrok_list_projects to refresh names. Prefer symbol_context or search_and_read over many small calls; use batch_search for independent queries and line-ranged file reads for large files. response_format=auto is preferred; use json only for programmatic parsing.`.trim();
+Use an exact, non-empty project scope; list projects only when the name is unknown. Routing to the matching server is automatic. Prefer combined or batch tools, bounded file ranges, and the smallest useful response.`.trim();
 
 /**
- * Code Mode uses a shorter instruction set — only 5 tools are exposed so the full
- * standard decision tree is not needed. This saves ~80-100 tokens per turn vs
- * the standard instructions.
+ * Code Mode exposes only 5 tools and keeps initialization instructions bounded.
  */
-export const SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE = `You are connected to an OpenGrok code search MCP server in Code Mode.
-
-## CONNECTION
-Android 15 → opengrok-android-v; Android 16 → opengrok-android-w; Android 17 → opengrok-android-x. If Android version or connection is unclear, ask; never guess.
-
-## AVAILABLE PROJECTS
+export const SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE = `OpenGrok Code Mode.
 {{PROJECT_STATUS}}
-Use only an exact project name shown above, returned by opengrok_api, or supplied by the user. Search with a non-empty projects array unless a default project is explicitly configured; never guess or send an empty array.
-
-## SESSION
 {{MEMORY_STATUS}}
-Call opengrok_api once, then opengrok_execute. Read memory when prior context exists; at completion append investigation-log.md and overwrite active-task.md.
-
-## SANDBOX
-env.opengrok methods are synchronous. Do not use Promise.all; use batchSearch. Handle elicit cancellation and null sample results. For file ambiguity, ask before fetching. Paginate search with startIndex/endIndex as documented by opengrok_api.`.trim();
+Use an exact, non-empty project scope; routing is automatic. Call opengrok_api only when project names or method syntax are unknown, not at session start. In opengrok_execute, env.opengrok is synchronous; use batchSearch instead of Promise.all and return only needed data. Use active-task.md and investigation-log.md only when useful.`.trim();
 
 const STARTUP_PROJECT_LIMIT = 50;
+
+/** Keep MCP initialization bounded: expose only discovery state, never the full catalog. */
+export function formatStartupProjectStatus(
+  projectNames: string[],
+  defaultProject?: string
+): string {
+  const projectCount = new Set(projectNames.map((name) => name.trim()).filter(Boolean)).size;
+  const defaultHint = defaultProject?.trim()
+    ? ` Default: ${JSON.stringify(defaultProject.trim())}.`
+    : "";
+
+  if (projectCount === 0) {
+    return `[OpenGrok] Connected; no indexed projects discovered.${defaultHint}`;
+  }
+
+  return `[OpenGrok] Connected; ${projectCount} projects discovered.${defaultHint} Exact names are available on demand.`;
+}
 
 /** Format remote project names as data, not instructions, for the MCP init prompt. */
 export function formatProjectCatalog(
@@ -279,7 +275,7 @@ async function resolveStartupProjectStatus(
 
   try {
     const projects = await client.listProjects();
-    return formatProjectCatalog(projects.map((project) => project.name), defaultProject);
+    return formatStartupProjectStatus(projects.map((project) => project.name), defaultProject);
   } catch {
     return "[OpenGrok] Connected, but project discovery failed. Refresh the project list or ask the user before searching.";
   }
@@ -393,7 +389,7 @@ Read local C/C++ compiler flags and includes from compile_commands.json.
 - \`path\` — local absolute or workspace-relative path (required)`,
 
   opengrok_api: `## opengrok_api
-[Code Mode] Return the API, current project catalog, project rules, and pagination guidance. Call once per session.`,
+[Code Mode] Return the API and current project catalog on demand. Skip it when the project and method syntax are already known.`,
 
   opengrok_execute: `## opengrok_execute
 [Code Mode] Execute synchronous env.opengrok calls using exact projects from opengrok_api or prior results.
@@ -930,7 +926,7 @@ export const TOOL_DEFS: Record<string, {
     },
   },
   opengrok_api: {
-    description: "Load Code Mode API, available projects, project rules, and pagination.",
+    description: "Show Code Mode API and projects only when scope or method syntax is unknown.",
     parameters: {
       _: { description: "(no input required)" },
     },

@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 
 describe('SERVER_INSTRUCTIONS token budget', () => {
-  it('standard template is ≤1500 chars (≈300 tokens)', async () => {
+  it('standard template is ≤500 chars', async () => {
     const { SERVER_INSTRUCTIONS_TEMPLATE } = await import('../server/server.js');
     const filled = SERVER_INSTRUCTIONS_TEMPLATE.replace('{{MEMORY_STATUS}}', '[Memory] No prior context.');
-    expect(filled.length).toBeLessThanOrEqual(1500);
+    expect(filled.length).toBeLessThanOrEqual(500);
   });
 
-  it('code mode template is ≤1800 chars (≈360 tokens)', async () => {
+  it('code mode template is ≤600 chars', async () => {
     const { SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE } = await import('../server/server.js');
     const filled = SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE.replace('{{MEMORY_STATUS}}', '[Memory] No prior context.');
-    expect(filled.length).toBeLessThanOrEqual(1800);
+    expect(filled.length).toBeLessThanOrEqual(600);
   });
 
   it('template contains {{MEMORY_STATUS}} placeholder', async () => {
@@ -33,6 +33,15 @@ describe('SERVER_INSTRUCTIONS token budget', () => {
     expect(catalog).toContain('Available exact project names (2)');
     expect(catalog).toContain('["android-v","android-w"]');
     expect(catalog).toContain('Configured default project: "android-w"');
+  });
+
+  it('keeps startup project status compact and omits project names', async () => {
+    const { formatStartupProjectStatus } = await import('../server/server.js');
+    const status = formatStartupProjectStatus(['secret-a', 'secret-b', 'secret-a'], 'secret-b');
+    expect(status).toContain('2 projects discovered');
+    expect(status).toContain('Default: "secret-b"');
+    expect(status).not.toContain('secret-a');
+    expect(status.length).toBeLessThanOrEqual(150);
   });
 
   it('bounds large startup catalogs and directs the agent to refresh', async () => {

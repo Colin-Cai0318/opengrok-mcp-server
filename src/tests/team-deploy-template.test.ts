@@ -30,14 +30,22 @@ describe("team deployment template", () => {
 
   it("registers one routed MCP instead of three legacy processes", () => {
     const document = readJson(join(template, "vscode", "mcp-servers.json"));
-    const servers = document.servers as Record<string, { args: string[] }>;
+    const servers = document.servers as Record<string, { args: string[]; env: Record<string, string> }>;
 
     expect(Object.keys(servers)).toEqual(["opengrok-android-routing"]);
     expect(servers["opengrok-android-routing"].args).toEqual([]);
+    expect(servers["opengrok-android-routing"].env.OPENGROK_CODE_MODE).toBe("true");
 
     const wrapper = readFileSync(join(template, "bin", "opengrok-mcp-wrapper.sh"), "utf8");
     expect(wrapper).toContain('exec "$MCP_BIN" --connections-file "$CONNECTIONS_FILE" "$@"');
     expect(wrapper).not.toContain('--connection "$connection"');
+  });
+
+  it("ships one concise top-level Markdown guide", () => {
+    const markdownFiles = filesUnder(template)
+      .filter((file) => file.endsWith(".md"))
+      .map((file) => file.slice(template.length + 1));
+    expect(markdownFiles).toEqual(["README.md"]);
   });
 
   it("contains no generated runtime credentials", () => {
