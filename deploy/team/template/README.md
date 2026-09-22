@@ -5,8 +5,8 @@
 ## 安装
 
 ```bash
-unzip opengrok-mcp-team-deploy-__DEPLOY_VERSION__.zip
-cd opengrok-mcp-team-deploy-__DEPLOY_VERSION__
+unzip oepngork-mcp-V__DEPLOY_VERSION__.zip
+cd oepngork-mcp-V__DEPLOY_VERSION__
 ./install.sh
 ```
 

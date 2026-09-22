@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SHARE_DIR="${HOME}/.local/share/opengrok-mcp"
-BUNDLED_PACKAGE="${SHARE_DIR}/packages/opengrok-mcp-server-routing-canary.tgz"
+BUNDLED_PACKAGE="${SHARE_DIR}/packages/opengrok-mcp-server-__NPM_PACKAGE_VERSION__.tgz"
 RUNTIME_DIR="${OPENGROK_MCP_RUNTIME_DIR:-${SHARE_DIR}/runtime}"
 
 if [[ "${1:-}" == "--latest" ]]; then

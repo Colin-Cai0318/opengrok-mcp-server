@@ -18,13 +18,13 @@ npm run package:team-deploy
 The default output is:
 
 ```text
-dist/team-deploy/opengrok-mcp-team-deploy-<npm-version>-routing.<git-sha>.zip
+dist/team-deploy/oepngork-mcp-V<npm-version>.zip
 ```
 
 Set an explicit deployment version when preparing a named Canary or release:
 
 ```bash
-npm run package:team-deploy -- --version 1.1.0-routing-canary
+npm run package:team-deploy -- --version 9.4.0
 ```
 
 The packager requires a clean working tree by default so `SOURCE_COMMIT` accurately identifies every bundled source file. `--allow-dirty` exists only for developing and testing the packaging workflow.

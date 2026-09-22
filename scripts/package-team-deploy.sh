@@ -17,7 +17,7 @@ OpenGrok V/W/X team configuration.
 
 Options:
   --version <version>      Deployment bundle version. Defaults to
-                           <npm-version>-routing.<short-git-sha>.
+                           the current npm package version.
   --output-dir <path>      Output directory. Defaults to dist/team-deploy.
   --team-config <path>     Non-secret internal URL/proxy configuration. Defaults
                            to deploy/team/team-config.local.json (gitignored).
@@ -81,7 +81,7 @@ SOURCE_BRANCH="$(git branch --show-current)"
 NPM_PACKAGE_VERSION="$(node -p 'require("./package.json").version')"
 
 if [[ -z "$DEPLOY_VERSION" ]]; then
-  DEPLOY_VERSION="${NPM_PACKAGE_VERSION}-routing.${SOURCE_SHORT}"
+  DEPLOY_VERSION="${NPM_PACKAGE_VERSION}"
 fi
 [[ "$DEPLOY_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
   echo "Invalid deployment version: $DEPLOY_VERSION" >&2
@@ -104,7 +104,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-BUNDLE_NAME="opengrok-mcp-team-deploy-${DEPLOY_VERSION}"
+BUNDLE_NAME="oepngork-mcp-V${DEPLOY_VERSION}"
 BUNDLE_DIR="${WORK_DIR}/${BUNDLE_NAME}"
 PACK_DIR="${WORK_DIR}/npm-pack"
 mkdir -p "$BUNDLE_DIR" "$PACK_DIR" "$BUNDLE_DIR/vendor"
@@ -118,7 +118,7 @@ packed_count="$(find "$PACK_DIR" -maxdepth 1 -type f -name '*.tgz' -print | wc -
   exit 1
 }
 packed_archive="$(find "$PACK_DIR" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
-BUNDLED_TARBALL="${BUNDLE_DIR}/vendor/opengrok-mcp-server-routing-canary.tgz"
+BUNDLED_TARBALL="${BUNDLE_DIR}/vendor/opengrok-mcp-server-${NPM_PACKAGE_VERSION}.tgz"
 cp "$packed_archive" "$BUNDLED_TARBALL"
 
 PACKAGE_SHA256="$(node -e 'const fs=require("fs"),c=require("crypto");const b=fs.readFileSync(process.argv[1]);process.stdout.write(c.createHash("sha256").update(b).digest("hex"))' "$BUNDLED_TARBALL")"
@@ -195,7 +195,7 @@ fs.writeFileSync(path.join(root, "PACKAGE_MANIFEST.json"), `${JSON.stringify({
   sourceCommit: process.env.SOURCE_COMMIT,
   npmPackageName: "@colin-cai0318/opengrok-mcp-server",
   npmPackageVersion: process.env.NPM_PACKAGE_VERSION,
-  bundledTarball: "vendor/opengrok-mcp-server-routing-canary.tgz",
+  bundledTarball: `vendor/opengrok-mcp-server-${process.env.NPM_PACKAGE_VERSION}.tgz`,
   bundledTarballSha256: process.env.PACKAGE_SHA256,
   teamConfigurationSha256: process.env.TEAM_CONFIG_SHA256,
 }, null, 2)}\n`);
