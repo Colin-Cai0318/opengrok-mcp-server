@@ -15,11 +15,9 @@ export no_proxy="127.0.0.1,localhost,::1${no_proxy:+,${no_proxy}}"
 
 "$START_HELPER" >/dev/null
 [[ -r "$CONNECTIONS_FILE" ]] || { echo "Missing $CONNECTIONS_FILE" >&2; exit 1; }
-[[ -r "$COOKIE_JSON" ]] || {
-  echo "Cookie state not found: $COOKIE_JSON" >&2
-  echo "Load the Chrome extension, log in to all OpenGrok sites, sync, then restart this MCP." >&2
-  exit 1
-}
+if [[ ! -r "$COOKIE_JSON" ]]; then
+  echo "Cookie state not found yet; attempting project discovery on each enabled server." >&2
+fi
 [[ -x "$MCP_BIN" ]] || {
   echo "OpenGrok MCP runtime missing. Run ~/.local/bin/update-opengrok-mcp.sh" >&2
   exit 1
@@ -40,8 +38,11 @@ connections = document.get("connections", {})
 if not isinstance(connections, dict) or len(connections) < 2:
     raise SystemExit("connections.json must define at least two connections")
 
-with open(cookies_file, encoding="utf-8") as handle:
-    state = json.load(handle)
+try:
+    with open(cookies_file, encoding="utf-8") as handle:
+        state = json.load(handle)
+except FileNotFoundError:
+    state = {}
 cookies = state.get("cookies", state)
 if not isinstance(cookies, dict):
     raise SystemExit("cookies.json does not contain a cookies object")
@@ -63,7 +64,8 @@ for name, connection in connections.items():
         raise SystemExit(f"connection {name} has no cookieEnv")
     cookie = cookies.get(cookie_env)
     if not isinstance(cookie, str) or not cookie:
-        raise SystemExit(f"cookie not available for {name} ({cookie_env})")
+        print(f"cookie not available for {name} ({cookie_env}); this connection may be unavailable", file=sys.stderr)
+        cookie = ""
     resolved[cookie_env] = cookie
 
     proxy_env = connection.get("proxyEnv")

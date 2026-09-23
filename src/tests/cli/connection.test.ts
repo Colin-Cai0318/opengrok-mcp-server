@@ -49,6 +49,22 @@ describe("server connection arguments", () => {
     expect(() => parseServerArguments(["--cookie-env", "MISSING"], {})).toThrow("MISSING");
   });
 
+  it("keeps a named route without its Cookie and masks a global Cookie", () => {
+    const dir = mkdtempSync(join(tmpdir(), "opengrok-routes-"));
+    const file = join(dir, "connections.json");
+    writeFileSync(file, JSON.stringify({ connections: {
+      one: { url: "https://one.example/source/", cookieEnv: "ONE_COOKIE" },
+      two: { url: "https://two.example/source/", cookieEnv: "TWO_COOKIE" },
+    } }));
+    try {
+      const parsed = parseServerArguments(["--connections-file", file], { ONE_COOKIE: "sid=one" });
+      expect(parsed.connections?.[0].overrides.OPENGROK_COOKIE).toBe("sid=one");
+      expect(parsed.connections?.[1].overrides.OPENGROK_COOKIE).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("loads every named connection when no single connection is selected", () => {
     const dir = mkdtempSync(join(tmpdir(), "opengrok-routes-"));
     const file = join(dir, "connections.json");

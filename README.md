@@ -74,7 +74,7 @@ wizard configure one URL; for multiple URLs, add the manual MCP server entry sho
 
 - Node.js 22 or newer is required when running the standalone npm/source build.
 - The machine or container running the MCP process should be able to reach each configured URL.
-  If one server cannot return its project catalog, reachable servers remain usable; the MCP startup
+  If one server cannot return its project catalog (including an empty catalog or missing login Cookie), reachable servers remain usable; the MCP startup
   instructions warn about unavailable connection names. Restart the MCP after that server recovers.
 - Duplicate project names route to the first configured server. Use the connection order to choose
   priority, and verify duplicate names really refer to the same content.

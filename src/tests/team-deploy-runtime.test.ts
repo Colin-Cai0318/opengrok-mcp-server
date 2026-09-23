@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 const root = resolve(process.cwd());
 const manager = join(root, "deploy/team/template/bin/manage-opengrok-connections.py");
 const helper = join(root, "deploy/team/template/bin/opengrok_cookie_helper.py");
+const wrapper = join(root, "deploy/team/template/bin/opengrok-mcp-wrapper.sh");
 const background = join(root, "deploy/team/template/chrome-extension/background.js");
 const tempDirs: string[] = [];
 
@@ -90,6 +91,37 @@ describe("team deployment connection management", () => {
     const rejected = inspect('m["update_cookies"]({"HQ_COOKIE_ONE":"sid=two"})');
     expect(rejected.status).not.toBe(0);
     expect(rejected.stderr).toContain("unsupported cookie key");
+  });
+
+  it("starts with healthy Cookies when another enabled site has no Cookie", () => {
+    const dir = fixture();
+    const binDir = join(dir, ".local/bin");
+    const runtimeDir = join(dir, "runtime");
+    const mcpBinDir = join(runtimeDir, "node_modules/.bin");
+    mkdirSync(binDir, { recursive: true });
+    mkdirSync(mcpBinDir, { recursive: true });
+    const startHelper = join(binDir, "start-opengrok-cookie-helper.sh");
+    const mcpBin = join(mcpBinDir, "opengrok-mcp-server");
+    writeFileSync(startHelper, "#!/bin/sh\nexit 0\n");
+    writeFileSync(mcpBin, "#!/bin/sh\nprintf 'first=%s second=%s\\n' \"$LX_COOKIE_ONE\" \"$LX_COOKIE_TWO\"\n");
+    chmodSync(startHelper, 0o700);
+    chmodSync(mcpBin, 0o700);
+    writeFileSync(join(dir, "network.json"), "{}\n");
+    writeFileSync(join(dir, "cookies.json"), JSON.stringify({ cookies: { LX_COOKIE_ONE: "sid=fresh" } }));
+    const result = spawnSync("bash", [wrapper], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: dir,
+        OPENGROK_MCP_CONFIG_DIR: dir,
+        OPENGROK_MCP_RUNTIME_DIR: runtimeDir,
+        LX_COOKIE_TWO: "sid=stale",
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("first=sid=fresh second=");
+    expect(result.stdout).not.toContain("sid=stale");
+    expect(result.stderr).toContain("cookie not available for lx-two");
   });
 });
 

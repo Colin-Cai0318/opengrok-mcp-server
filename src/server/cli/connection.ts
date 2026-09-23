@@ -87,8 +87,10 @@ function readConnections(filePath: string, environment: NodeJS.ProcessEnv): Reso
     }
     if (connection.cookieEnv) {
       const cookie = environment[connection.cookieEnv];
-      if (!cookie) throw new Error(`Connection "${name}" requires environment variable "${connection.cookieEnv}"`);
-      overrides.OPENGROK_COOKIE = cookie;
+      // An unavailable login must not prevent healthy routes from starting.
+      // Explicitly mask a process-wide Cookie so credentials never leak across
+      // named servers when this connection's own Cookie is absent.
+      overrides.OPENGROK_COOKIE = cookie || "";
     }
     if (connection.passwordEnv) {
       const password = environment[connection.passwordEnv];
