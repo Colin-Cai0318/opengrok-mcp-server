@@ -35,6 +35,8 @@ Proxy settings are injected from `team-config.local.json` at package time. Its `
 
 The full connection catalog comes from `team-connections.local.json` (or `--connections-file <path>`). The packager validates each URL and cookie environment variable, includes all entries in `connections.catalog.json`, and enables only the `lx-` entries in `connections.json`. Installed users add or remove optional entries with `~/.local/bin/manage-opengrok-connections.py`.
 
+The existing `lq-` location prefix groups the LC sites. Add LC-A17 to the local catalog as `lq-opengrok-android-x` with its own `LQ_OPENGROK_COOKIE_X`, `direct=true`, and `verifySsl=true`; then `add lq` enables both LC-W and LC-A17. Keep actual intranet URLs in the gitignored catalog, not in this public repository.
+
 The generated archive contains:
 
 - a tarball built from the current OpenGrok MCP commit;

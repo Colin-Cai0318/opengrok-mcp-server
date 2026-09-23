@@ -25,12 +25,15 @@ cd oepngork-mcp-V__DEPLOY_VERSION__
 ```bash
 ~/.local/bin/manage-opengrok-connections.py list
 ~/.local/bin/manage-opengrok-connections.py add hq
+~/.local/bin/manage-opengrok-connections.py add lq
 ~/.local/bin/manage-opengrok-connections.py add xm-opengrok-android-x
 ~/.local/bin/manage-opengrok-connections.py add all
 ~/.local/bin/manage-opengrok-connections.py remove hq
 ```
 
 变更后重新打开扩展，打开登录页并同步 Cookie，然后重启 MCP。`remove` 不会移除 LX 默认连接，并清理被移除服务器在本机同步的 Cookie；重新运行安装脚本会保留当前启用列表。扩展每次从 Helper 读取当前连接，不需要重新打包。升级旧版扩展后，在 `chrome://extensions/` 点击一次“重新加载”。
+
+连接目录沿用既有命名：`lq-` 代表 LC 站点，`add lq` 会同时启用 LC-W 和 LC-A17；其中 LC-A17 与 LX-A17 一样使用 `direct=true` 和 SSL 校验，但使用独立的 Cookie。
 
 ## 验证
 

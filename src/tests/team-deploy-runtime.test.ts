@@ -19,6 +19,8 @@ function fixture() {
       "lx-one": { url: "https://lx-one.example/source/", cookieEnv: "LX_COOKIE_ONE", direct: true },
       "lx-two": { url: "https://lx-two.example/source/", cookieEnv: "LX_COOKIE_TWO", direct: true },
       "hq-one": { url: "https://hq-one.example/source/", cookieEnv: "HQ_COOKIE_ONE", direct: true },
+      "lq-w": { url: "https://lq-w.example/source/", cookieEnv: "LQ_COOKIE_W", proxyEnv: "TEST_PROXY" },
+      "lq-x": { url: "https://lq-x.example/source/", cookieEnv: "LQ_COOKIE_X", direct: true, verifySsl: true },
     },
   };
   writeFileSync(join(dir, "connections.catalog.json"), JSON.stringify(catalog));
@@ -61,6 +63,16 @@ describe("team deployment connection management", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("cookies.json must contain an object");
     expect(readFileSync(join(dir, "connections.json"), "utf8")).toBe(before);
+  });
+
+  it("adds both LC variants together under the existing lq prefix", () => {
+    const dir = fixture();
+    expect(python([manager, "add", "lq"], dir).status).toBe(0);
+    const active = JSON.parse(readFileSync(join(dir, "connections.json"), "utf8")).connections;
+    expect(Object.keys(active)).toEqual(["lx-one", "lx-two", "lq-w", "lq-x"]);
+    expect(active["lq-x"].direct).toBe(true);
+    expect(active["lq-x"].verifySsl).toBe(true);
+    expect(active["lq-x"].cookieEnv).not.toBe(active["lq-w"].cookieEnv);
   });
 
   it("reads active sites dynamically and rejects cookies for disabled sites", () => {
