@@ -118,7 +118,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-BUNDLE_NAME="oepngork-mcp-V${DEPLOY_VERSION}"
+BUNDLE_NAME="opengork-mcp-v${DEPLOY_VERSION}"
 BUNDLE_DIR="${WORK_DIR}/${BUNDLE_NAME}"
 PACK_DIR="${WORK_DIR}/npm-pack"
 mkdir -p "$BUNDLE_DIR" "$PACK_DIR" "$BUNDLE_DIR/vendor"

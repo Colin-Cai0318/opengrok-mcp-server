@@ -20,7 +20,7 @@ npm run package:team-deploy
 The default output is:
 
 ```text
-dist/team-deploy/oepngork-mcp-V<npm-version>.zip
+dist/team-deploy/opengork-mcp-v<npm-version>.zip
 ```
 
 Set an explicit deployment version when preparing a named Canary or release:

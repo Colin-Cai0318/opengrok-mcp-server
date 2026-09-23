@@ -5,8 +5,8 @@
 ## 安装
 
 ```bash
-unzip oepngork-mcp-V__DEPLOY_VERSION__.zip
-cd oepngork-mcp-V__DEPLOY_VERSION__
+unzip opengork-mcp-v__DEPLOY_VERSION__.zip
+cd opengork-mcp-v__DEPLOY_VERSION__
 ./install.sh
 ```
 

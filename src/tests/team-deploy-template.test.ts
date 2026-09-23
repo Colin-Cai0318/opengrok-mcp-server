@@ -61,6 +61,9 @@ describe("team deployment template", () => {
     const scripts = packageDocument.scripts as Record<string, string>;
     expect(scripts["package:team-deploy"]).toBe("bash scripts/package-team-deploy.sh");
     expect(existsSync(join(root, "scripts", "package-team-deploy.sh"))).toBe(true);
+    const packager = readFileSync(join(root, "scripts", "package-team-deploy.sh"), "utf8");
+    expect(packager).toContain('BUNDLE_NAME="opengork-mcp-v${DEPLOY_VERSION}"');
+    expect(packager).not.toContain("oepngork-mcp-V");
 
     const installer = readFileSync(join(template, "install.sh"), "utf8");
     expect(installer).toContain('PACKAGE_SHA256="__PACKAGE_SHA256__"');
