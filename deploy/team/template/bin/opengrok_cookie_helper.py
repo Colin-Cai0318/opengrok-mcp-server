@@ -9,10 +9,12 @@ import os
 import secrets
 import tempfile
 import threading
+import re
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Dict
+from urllib.parse import urlparse
 
 HOST = os.environ.get("OPENGROK_COOKIE_HELPER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("OPENGROK_COOKIE_HELPER_PORT", "8765"))
@@ -22,13 +24,35 @@ COOKIE_JSON_FILE = CONFIG_DIR / "cookies.json"
 COOKIE_DIR = CONFIG_DIR / "cookies"
 TOKEN_FILE = CONFIG_DIR / "helper.token"
 STATUS_FILE = CONFIG_DIR / "helper-status.json"
+CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
 
-ALLOWED_COOKIE_KEYS = {
-    "OPENGROK_COOKIE_V": "opengrok-android-v.cookie",
-    "OPENGROK_COOKIE_W": "opengrok-android-w.cookie",
-    "OPENGROK_COOKIE_X": "opengrok-android-x.cookie",
-}
 _state_lock = threading.Lock()
+
+
+def _targets() -> list[dict]:
+    with CONNECTIONS_FILE.open(encoding="utf-8") as handle:
+        connections = json.load(handle).get("connections")
+    if not isinstance(connections, dict) or not connections:
+        raise ValueError("connections.json has no active connections")
+    targets = []
+    for name, connection in connections.items():
+        if not isinstance(connection, dict):
+            raise ValueError(f"invalid connection: {name}")
+        url = connection.get("url")
+        cookie_env = connection.get("cookieEnv")
+        parsed = urlparse(url) if isinstance(url, str) else None
+        if (not parsed or parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username or parsed.password or parsed.fragment):
+            raise ValueError(f"invalid URL for {name}")
+        if not isinstance(cookie_env, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", cookie_env):
+            raise ValueError(f"invalid cookieEnv for {name}")
+        targets.append({"name": name, "url": url, "cookieEnv": cookie_env})
+    return targets
+
+
+def _allowed_cookie_keys() -> dict[str, str]:
+    return {target["cookieEnv"]: target["cookieEnv"].lower().replace("_", "-") + ".cookie"
+            for target in _targets()}
 
 
 def _utc_now() -> str:
@@ -79,11 +103,12 @@ def _read_cookie_json() -> Dict[str, str]:
     cookies = raw.get("cookies", raw) if isinstance(raw, dict) else {}
     if not isinstance(cookies, dict):
         return {}
-    return {k: v for k, v in cookies.items() if k in ALLOWED_COOKIE_KEYS and isinstance(v, str) and v}
+    allowed = _allowed_cookie_keys()
+    return {k: v for k, v in cookies.items() if k in allowed and isinstance(v, str) and v}
 
 
 def _render_env(cookies: Dict[str, str]) -> str:
-    return "".join(f"{key}={cookies[key]}\n" for key in ALLOWED_COOKIE_KEYS if cookies.get(key))
+    return "".join(f"{key}={cookies[key]}\n" for key in _allowed_cookie_keys() if cookies.get(key))
 
 
 def _write_status(cookies: Dict[str, str], changed: bool) -> None:
@@ -96,7 +121,7 @@ def _write_status(cookies: Dict[str, str], changed: bool) -> None:
                 "present": bool(cookies.get(key)),
                 "sha256Prefix": hashlib.sha256(cookies[key].encode()).hexdigest()[:12] if cookies.get(key) else None,
             }
-            for key in ALLOWED_COOKIE_KEYS
+            for key in _allowed_cookie_keys()
         },
     }
     _atomic_write(STATUS_FILE, json.dumps(status, indent=2) + "\n", 0o600)
@@ -104,10 +129,11 @@ def _write_status(cookies: Dict[str, str], changed: bool) -> None:
 
 def update_cookies(incoming: Dict[str, str]) -> bool:
     with _state_lock:
+        allowed = _allowed_cookie_keys()
         existing = _read_cookie_json()
         merged = dict(existing)
         for key, value in incoming.items():
-            if key not in ALLOWED_COOKIE_KEYS:
+            if key not in allowed:
                 raise ValueError(f"unsupported cookie key: {key}")
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"cookie {key} is empty")
@@ -124,7 +150,7 @@ def update_cookies(incoming: Dict[str, str]) -> bool:
 
         COOKIE_DIR.mkdir(parents=True, exist_ok=True)
         os.chmod(COOKIE_DIR, 0o700)
-        for key, filename in ALLOWED_COOKIE_KEYS.items():
+        for key, filename in allowed.items():
             if merged.get(key):
                 _atomic_write(COOKIE_DIR / filename, merged[key] + "\n", 0o600)
         _write_status(merged, changed)
@@ -132,19 +158,26 @@ def update_cookies(incoming: Dict[str, str]) -> bool:
 
 
 def _read_status() -> dict:
+    status = {}
     if STATUS_FILE.exists():
         try:
-            status = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
-            if isinstance(status, dict):
-                return status
+            stored = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+            if isinstance(stored, dict):
+                status = stored
         except (OSError, json.JSONDecodeError):
             pass
     cookies = _read_cookie_json()
     return {
         "service": "opengrok-cookie-helper",
-        "updatedAt": None,
-        "changed": False,
-        "cookies": {key: {"present": bool(cookies.get(key))} for key in ALLOWED_COOKIE_KEYS},
+        "updatedAt": status.get("updatedAt"),
+        "changed": status.get("changed", False),
+        "cookies": {
+            key: {
+                "present": bool(cookies.get(key)),
+                "sha256Prefix": hashlib.sha256(cookies[key].encode()).hexdigest()[:12] if cookies.get(key) else None,
+            }
+            for key in _allowed_cookie_keys()
+        },
     }
 
 
@@ -183,6 +216,16 @@ class Handler(BaseHTTPRequestHandler):
             status["ok"] = True
             self._json(200, status)
             return
+        if self.path == "/targets":
+            supplied = self.headers.get("X-OpenGrok-Sync-Token", "")
+            if not supplied or not hmac.compare_digest(supplied, TOKEN):
+                self._json(403, {"ok": False, "error": "invalid token"})
+                return
+            try:
+                self._json(200, {"ok": True, "targets": _targets()})
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
         self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self) -> None:
@@ -201,7 +244,10 @@ class Handler(BaseHTTPRequestHandler):
             cookies = data.get("cookies")
             if not isinstance(cookies, dict) or not cookies:
                 raise ValueError("cookies must be a non-empty object")
-            cleaned = {k: v for k, v in cookies.items() if k in ALLOWED_COOKIE_KEYS and isinstance(v, str) and v.strip()}
+            allowed = _allowed_cookie_keys()
+            if any(k not in allowed for k in cookies):
+                raise ValueError("request contains an unsupported cookie key")
+            cleaned = {k: v for k, v in cookies.items() if isinstance(v, str) and v.strip()}
             if not cleaned:
                 raise ValueError("no supported non-empty cookies in request")
             changed = update_cookies(cleaned)

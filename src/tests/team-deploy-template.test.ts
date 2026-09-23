@@ -21,10 +21,10 @@ describe("team deployment template", () => {
     const document = readJson(join(template, ".config", "opengrok-mcp", "connections.json"));
     const connections = document.connections as Record<string, Record<string, unknown>>;
 
-    expect(connections["opengrok-android-v"].proxyEnv).toBe("OPENGROK_PROXY_VW");
-    expect(connections["opengrok-android-w"].proxyEnv).toBe("OPENGROK_PROXY_VW");
-    expect(connections["opengrok-android-x"].direct).toBe(true);
-    expect(connections["opengrok-android-x"].proxyEnv).toBeUndefined();
+    expect(connections["lx-opengrok-android-v"].proxyEnv).toBe("OPENGROK_PROXY_VW");
+    expect(connections["lx-opengrok-android-w"].proxyEnv).toBe("OPENGROK_PROXY_VW");
+    expect(connections["lx-opengrok-android-x"].direct).toBe(true);
+    expect(connections["lx-opengrok-android-x"].proxyEnv).toBeUndefined();
     expect(existsSync(join(template, ".config", "opengrok-mcp", "routing.json"))).toBe(false);
   });
 
@@ -64,6 +64,7 @@ describe("team deployment template", () => {
 
     const installer = readFileSync(join(template, "install.sh"), "utf8");
     expect(installer).toContain('PACKAGE_SHA256="__PACKAGE_SHA256__"');
-    expect(installer).toContain('PACKAGE_ARCHIVE="opengrok-mcp-server-routing-canary.tgz"');
+    expect(installer).toContain('PACKAGE_ARCHIVE="opengrok-mcp-server-__NPM_PACKAGE_VERSION__.tgz"');
+    expect(installer).toContain('connections.catalog.json');
   });
 });

@@ -5,6 +5,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE_DIR="${ROOT}/deploy/team/template"
 OUTPUT_DIR="${ROOT}/dist/team-deploy"
 TEAM_CONFIG="${ROOT}/deploy/team/team-config.local.json"
+CONNECTIONS_SOURCE="${ROOT}/deploy/team/team-connections.local.json"
 DEPLOY_VERSION=""
 ALLOW_DIRTY=0
 
@@ -21,6 +22,8 @@ Options:
   --output-dir <path>      Output directory. Defaults to dist/team-deploy.
   --team-config <path>     Non-secret internal URL/proxy configuration. Defaults
                            to deploy/team/team-config.local.json (gitignored).
+  --connections-file <path>  Full connection catalog. Defaults to
+                           deploy/team/team-connections.local.json (gitignored).
   --allow-dirty            Allow packaging an uncommitted working tree.
                            Intended only for local package-script development.
   -h, --help               Show this help.
@@ -42,6 +45,11 @@ while (($#)); do
     --team-config)
       [[ $# -ge 2 ]] || { echo "--team-config requires a value" >&2; exit 2; }
       TEAM_CONFIG="$2"
+      shift 2
+      ;;
+    --connections-file)
+      [[ $# -ge 2 ]] || { echo "--connections-file requires a value" >&2; exit 2; }
+      CONNECTIONS_SOURCE="$2"
       shift 2
       ;;
     --allow-dirty)
@@ -75,6 +83,12 @@ cd "$ROOT"
   exit 1
 }
 TEAM_CONFIG="$(cd "$(dirname "$TEAM_CONFIG")" && pwd)/$(basename "$TEAM_CONFIG")"
+[[ -r "$CONNECTIONS_SOURCE" ]] || {
+  echo "Connection catalog not found: $CONNECTIONS_SOURCE" >&2
+  echo "Copy your connection.json to deploy/team/team-connections.local.json or pass --connections-file." >&2
+  exit 1
+}
+CONNECTIONS_SOURCE="$(cd "$(dirname "$CONNECTIONS_SOURCE")" && pwd)/$(basename "$CONNECTIONS_SOURCE")"
 SOURCE_COMMIT="$(git rev-parse HEAD)"
 SOURCE_SHORT="$(git rev-parse --short=7 HEAD)"
 SOURCE_BRANCH="$(git branch --show-current)"
@@ -123,6 +137,7 @@ cp "$packed_archive" "$BUNDLED_TARBALL"
 
 PACKAGE_SHA256="$(node -e 'const fs=require("fs"),c=require("crypto");const b=fs.readFileSync(process.argv[1]);process.stdout.write(c.createHash("sha256").update(b).digest("hex"))' "$BUNDLED_TARBALL")"
 TEAM_CONFIG_SHA256="$(node -e 'const fs=require("fs"),c=require("crypto");const b=fs.readFileSync(process.argv[1]);process.stdout.write(c.createHash("sha256").update(b).digest("hex"))' "$TEAM_CONFIG")"
+CONNECTIONS_SOURCE_SHA256="$(node -e 'const fs=require("fs"),c=require("crypto");const b=fs.readFileSync(process.argv[1]);process.stdout.write(c.createHash("sha256").update(b).digest("hex"))' "$CONNECTIONS_SOURCE")"
 
 echo "==> Rendering deployment template ${DEPLOY_VERSION}"
 DEPLOY_VERSION="$DEPLOY_VERSION" \
@@ -132,7 +147,9 @@ SOURCE_BRANCH="$SOURCE_BRANCH" \
 NPM_PACKAGE_VERSION="$NPM_PACKAGE_VERSION" \
 PACKAGE_SHA256="$PACKAGE_SHA256" \
 TEAM_CONFIG_SHA256="$TEAM_CONFIG_SHA256" \
+CONNECTIONS_SOURCE_SHA256="$CONNECTIONS_SOURCE_SHA256" \
 TEAM_CONFIG="$TEAM_CONFIG" \
+CONNECTIONS_SOURCE="$CONNECTIONS_SOURCE" \
 BUNDLE_DIR="$BUNDLE_DIR" \
 node <<'NODE'
 const crypto = require("crypto");
@@ -141,32 +158,62 @@ const path = require("path");
 
 const root = process.env.BUNDLE_DIR;
 const teamConfig = JSON.parse(fs.readFileSync(process.env.TEAM_CONFIG, "utf8"));
-function normalizedUrl(key, allowedProtocols) {
-  const raw = teamConfig[key];
-  if (typeof raw !== "string" || !raw.trim()) throw new Error(`Team configuration ${key} must be a non-empty URL`);
-  const url = new URL(raw);
-  if (!allowedProtocols.includes(url.protocol)) {
-    throw new Error(`Team configuration ${key} uses unsupported protocol ${url.protocol}`);
-  }
-  return url.toString();
+const connectionDocument = JSON.parse(fs.readFileSync(process.env.CONNECTIONS_SOURCE, "utf8"));
+const catalog = connectionDocument.connections;
+if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
+  throw new Error("Connection catalog must contain a connections object");
 }
-const vUrl = normalizedUrl("vUrl", ["http:", "https:"]);
-const wUrl = normalizedUrl("wUrl", ["http:", "https:"]);
-const xUrl = normalizedUrl("xUrl", ["http:", "https:"]);
-const vwProxy = normalizedUrl("vwProxy", ["http:", "https:", "socks5:"]);
+const entries = Object.entries(catalog);
+const lxEntries = entries.filter(([name]) => name.startsWith("lx-"));
+if (lxEntries.length < 2) throw new Error("Connection catalog must contain at least two lx- connections");
+const allowedFields = new Set(["url", "cookieEnv", "proxyEnv", "direct", "verifySsl", "username", "defaultProject", "passwordEnv"]);
+const network = teamConfig.network ?? (teamConfig.vwProxy ? { OPENGROK_PROXY_VW: teamConfig.vwProxy } : {});
+if (!network || typeof network !== "object" || Array.isArray(network)) {
+  throw new Error("Team configuration network must be an object");
+}
+for (const [key, raw] of Object.entries(network)) {
+  if (!/^[A-Z][A-Z0-9_]*$/.test(key) || typeof raw !== "string") {
+    throw new Error(`Invalid proxy configuration key ${JSON.stringify(key)}`);
+  }
+  const url = new URL(raw);
+  if (!["http:", "https:", "socks5:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error(`Proxy ${key} must use HTTP(S) or SOCKS5 without embedded credentials`);
+  }
+}
+const cookieEnvs = new Set();
+for (const [name, connection] of entries) {
+  if (!/^[a-z][a-z0-9-]*$/.test(name) || !connection || typeof connection !== "object") {
+    throw new Error(`Invalid connection ${JSON.stringify(name)}`);
+  }
+  const url = new URL(connection.url);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash) {
+    throw new Error(`Connection ${name} must have a credential-free HTTP(S) URL`);
+  }
+  if (!/^[A-Z][A-Z0-9_]*$/.test(connection.cookieEnv) || cookieEnvs.has(connection.cookieEnv)) {
+    throw new Error(`Connection ${name} needs a unique cookieEnv`);
+  }
+  if (Object.keys(connection).some((key) => !allowedFields.has(key))) {
+    throw new Error(`Connection ${name} contains unsupported fields`);
+  }
+  cookieEnvs.add(connection.cookieEnv);
+  if (connection.proxyEnv !== undefined &&
+      (typeof connection.proxyEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(connection.proxyEnv))) {
+    throw new Error(`Connection ${name} has an invalid proxyEnv`);
+  }
+  if (connection.direct !== undefined && typeof connection.direct !== "boolean") {
+    throw new Error(`Connection ${name} has an invalid direct flag`);
+  }
+  if (connection.proxyEnv && connection.direct) throw new Error(`Connection ${name} has conflicting network settings`);
+  if (connection.proxyEnv && !network[connection.proxyEnv]) {
+    throw new Error(`Connection ${name} needs proxy ${connection.proxyEnv} in team configuration`);
+  }
+}
 const replacements = new Map([
   ["__DEPLOY_VERSION__", process.env.DEPLOY_VERSION],
   ["__SOURCE_COMMIT__", process.env.SOURCE_COMMIT],
   ["__SOURCE_SHORT__", process.env.SOURCE_SHORT],
   ["__NPM_PACKAGE_VERSION__", process.env.NPM_PACKAGE_VERSION],
   ["__PACKAGE_SHA256__", process.env.PACKAGE_SHA256],
-  ["__OPENGROK_V_URL__", vUrl],
-  ["__OPENGROK_W_URL__", wUrl],
-  ["__OPENGROK_X_URL__", xUrl],
-  ["__OPENGROK_V_ORIGIN__", new URL(vUrl).origin],
-  ["__OPENGROK_W_ORIGIN__", new URL(wUrl).origin],
-  ["__OPENGROK_X_ORIGIN__", new URL(xUrl).origin],
-  ["__OPENGROK_PROXY_VW__", vwProxy],
 ]);
 
 function filesUnder(directory) {
@@ -185,6 +232,11 @@ for (const file of filesUnder(root)) {
   fs.writeFileSync(file, text);
 }
 
+const configDir = path.join(root, ".config", "opengrok-mcp");
+fs.writeFileSync(path.join(configDir, "connections.catalog.json"), JSON.stringify({ connections: catalog }, null, 2) + "\n");
+fs.writeFileSync(path.join(configDir, "connections.json"), JSON.stringify({ connections: Object.fromEntries(lxEntries) }, null, 2) + "\n");
+fs.writeFileSync(path.join(configDir, "network.json"), JSON.stringify(network, null, 2) + "\n");
+
 fs.writeFileSync(path.join(root, "VERSION"), `${process.env.DEPLOY_VERSION}\n`);
 fs.writeFileSync(path.join(root, "SOURCE_COMMIT"), `${process.env.SOURCE_COMMIT}\n`);
 fs.writeFileSync(path.join(root, "PACKAGE_MANIFEST.json"), `${JSON.stringify({
@@ -198,6 +250,7 @@ fs.writeFileSync(path.join(root, "PACKAGE_MANIFEST.json"), `${JSON.stringify({
   bundledTarball: `vendor/opengrok-mcp-server-${process.env.NPM_PACKAGE_VERSION}.tgz`,
   bundledTarballSha256: process.env.PACKAGE_SHA256,
   teamConfigurationSha256: process.env.TEAM_CONFIG_SHA256,
+  connectionCatalogSha256: process.env.CONNECTIONS_SOURCE_SHA256,
 }, null, 2)}\n`);
 
 const unresolved = [...replacements.keys()].flatMap((placeholder) =>

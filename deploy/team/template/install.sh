@@ -37,10 +37,33 @@ echo "Home: $HOME"
 say "Install rootless files"
 mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$SHARE_DIR" "$SHARE_DIR/packages" "$STATE_DIR" "$RUN_DIR" "$CONFIG_DIR/cookies"
 chmod 700 "$CONFIG_DIR" "$STATE_DIR" "$RUN_DIR" "$CONFIG_DIR/cookies" 2>/dev/null || true
-for f in opengrok_cookie_helper.py start-opengrok-cookie-helper.sh stop-opengrok-cookie-helper.sh update-opengrok-mcp.sh opengrok-mcp-wrapper.sh opengrok-cookie-status.sh open-opengrok-login-pages.sh install-vscode-mcp.sh test-opengrok-routing.sh; do
+for f in opengrok_cookie_helper.py manage-opengrok-connections.py start-opengrok-cookie-helper.sh stop-opengrok-cookie-helper.sh update-opengrok-mcp.sh opengrok-mcp-wrapper.sh opengrok-cookie-status.sh open-opengrok-login-pages.sh install-vscode-mcp.sh test-opengrok-routing.sh; do
   install -m 700 "$ROOT/bin/$f" "$BIN_DIR/$f"
 done
-backup_and_copy "$ROOT/.config/opengrok-mcp/connections.json" "$CONFIG_DIR/connections.json"
+install -m 600 "$ROOT/.config/opengrok-mcp/connections.catalog.json" "$CONFIG_DIR/connections.catalog.json"
+if [[ ! -f "$CONFIG_DIR/connections.json" ]]; then
+  install -m 600 "$ROOT/.config/opengrok-mcp/connections.json" "$CONFIG_DIR/connections.json"
+else
+  /usr/bin/python3 - "$CONFIG_DIR/connections.json" "$CONFIG_DIR/connections.catalog.json" <<'PYMIGRATE'
+import json, shutil, sys
+from datetime import datetime
+from pathlib import Path
+active_file, catalog_file = map(Path, sys.argv[1:])
+active = json.loads(active_file.read_text(encoding="utf-8"))["connections"]
+catalog = json.loads(catalog_file.read_text(encoding="utf-8"))["connections"]
+legacy = {"opengrok-android-v", "opengrok-android-w", "opengrok-android-x"}
+if any(name in active for name in legacy) and not any(name.startswith("lx-") for name in active):
+    backup = active_file.with_name(active_file.name + ".bak." + datetime.now().strftime("%Y%m%d-%H%M%S"))
+    shutil.copy2(active_file, backup)
+    migrated = {name: value for name, value in catalog.items() if name.startswith("lx-")}
+    migrated.update({name: value for name, value in active.items() if name not in legacy})
+    active_file.write_text(json.dumps({"connections": migrated}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    active_file.chmod(0o600)
+    print(f"Migrated legacy V/W/X connections to LX; backup: {backup}")
+else:
+    print("Preserved existing active connections.json")
+PYMIGRATE
+fi
 backup_and_copy "$ROOT/.config/opengrok-mcp/network.json" "$CONFIG_DIR/network.json"
 install -m 600 "$ROOT/.config/opengrok-mcp/README.txt" "$CONFIG_DIR/README.txt"
 install -m 600 "$ROOT/vscode/mcp-servers.json" "$CONFIG_DIR/vscode-mcp.generated.json"
@@ -56,6 +79,7 @@ else
 fi
 
 say "Start cookie helper and create per-machine token"
+"$BIN_DIR/stop-opengrok-cookie-helper.sh" >/dev/null
 "$BIN_DIR/start-opengrok-cookie-helper.sh"
 TOKEN_FILE="$CONFIG_DIR/helper.token"
 [[ -s "$TOKEN_FILE" ]] || { echo "helper token missing: $TOKEN_FILE" >&2; exit 1; }
@@ -108,7 +132,7 @@ VS Code fallback MCP config:
 
 Next manual steps (first install only):
   1. Chrome -> chrome://extensions -> Developer mode -> Load unpacked -> ${EXT_DIR}
-  2. In the extension, click "打开三个 OpenGrok 登录页" and complete login.
+  2. In the extension, click "打开所有已启用的 OpenGrok 登录页", grant access and complete login.
      Cookie changes are then synced automatically (onChanged + every 5 minutes).
   3. If VS Code was already open, run "MCP: List Servers" and restart opengrok-android-routing once.
      Disable/remove the legacy opengrok-android-v/w/x entries if they still exist.
@@ -118,6 +142,11 @@ Status command:
 
 Routing smoke test:
   ${BIN_DIR}/test-opengrok-routing.sh
+
+Manage additional servers:
+  ${BIN_DIR}/manage-opengrok-connections.py list
+  ${BIN_DIR}/manage-opengrok-connections.py add hq
+  ${BIN_DIR}/manage-opengrok-connections.py remove hq
 
 Important: the MCP server reads Cookie when its process starts.
 If Chrome refreshes Cookie while an MCP process is already running, restart that MCP once to consume the new Cookie.

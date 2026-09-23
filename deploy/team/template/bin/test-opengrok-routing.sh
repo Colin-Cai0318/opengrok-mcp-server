@@ -14,58 +14,56 @@ command -v timeout >/dev/null 2>&1 || { echo "GNU timeout is required for this s
 
 echo "== Static routing configuration =="
 /usr/bin/python3 - "$CONNECTIONS_FILE" "$NETWORK_FILE" "$COOKIE_JSON" <<'PY'
-import json
-import sys
-
+import json, sys
 connections_file, network_file, cookies_file = sys.argv[1:]
 with open(connections_file, encoding="utf-8") as handle:
-    connections = json.load(handle).get("connections", {})
+    connections = json.load(handle)["connections"]
 with open(network_file, encoding="utf-8") as handle:
     network = json.load(handle)
 with open(cookies_file, encoding="utf-8") as handle:
     state = json.load(handle)
 cookies = state.get("cookies", state)
-
-expected = {
-    "opengrok-android-v": ("OPENGROK_PROXY_VW", False),
-    "opengrok-android-w": ("OPENGROK_PROXY_VW", False),
-    "opengrok-android-x": (None, True),
-}
-for name, (proxy_env, direct) in expected.items():
-    connection = connections.get(name)
-    if not isinstance(connection, dict):
-        raise SystemExit(f"FAIL: missing connection {name}")
-    if connection.get("proxyEnv") != proxy_env or bool(connection.get("direct", False)) != direct:
-        raise SystemExit(f"FAIL: unexpected network policy for {name}")
+if len(connections) < 2:
+    raise SystemExit("FAIL: at least two active connections required")
+for name, connection in connections.items():
     cookie_env = connection.get("cookieEnv")
-    if not isinstance(cookies, dict) or not cookies.get(cookie_env):
+    if not cookie_env or not cookies.get(cookie_env):
         raise SystemExit(f"FAIL: cookie missing for {name} ({cookie_env})")
-    policy = f"proxyEnv={proxy_env}" if proxy_env else "direct=true"
+    proxy_env = connection.get("proxyEnv")
+    if proxy_env and (proxy_env not in network or connection.get("direct")):
+        raise SystemExit(f"FAIL: invalid proxy policy for {name}")
+    policy = f"proxyEnv={proxy_env}" if proxy_env else ("direct=true" if connection.get("direct") else "default")
     print(f"PASS: {name}: {policy}, cookie present")
-
-proxy = network.get("OPENGROK_PROXY_VW")
-if not isinstance(proxy, str) or not proxy:
-    raise SystemExit("FAIL: OPENGROK_PROXY_VW missing from network.json")
-print("PASS: V/W proxy configured")
 PY
+
+ACTIVE_TEXT="$(/usr/bin/python3 - "$CONNECTIONS_FILE" <<'PY'
+import json,sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print("\n".join(json.load(handle)["connections"]))
+PY
+)"
+[[ -n "$ACTIVE_TEXT" ]] || { echo "FAIL: no active connections" >&2; exit 1; }
+mapfile -t ACTIVE_NAMES <<< "$ACTIVE_TEXT"
 
 echo
 echo "== Live discovery with intentionally broken global proxy =="
 log_file="$(mktemp "${TMPDIR:-/tmp}/opengrok-routing-smoke.XXXXXX")"
 trap 'rm -f "$log_file"' EXIT
 set +e
-HTTP_PROXY="http://127.0.0.1:9" \
-HTTPS_PROXY="http://127.0.0.1:9" \
-timeout 45 "$WRAPPER" </dev/null >/dev/null 2>"$log_file"
+HTTP_PROXY="http://127.0.0.1:9" HTTPS_PROXY="http://127.0.0.1:9" \
+  timeout 45 "$WRAPPER" </dev/null >/dev/null 2>"$log_file"
 result=$?
 set -e
 
-if grep -q "Starting server" "$log_file" && \
-   grep -q "opengrok-android-v=" "$log_file" && \
-   grep -q "opengrok-android-w=" "$log_file" && \
-   grep -q "opengrok-android-x=" "$log_file"; then
-  echo "PASS: V/W/X project discovery completed in one routed MCP process"
-  echo "PASS: V/W proxy and X direct worked despite bad global HTTP(S)_PROXY"
+if grep -q "Starting server" "$log_file"; then
+  for name in "${ACTIVE_NAMES[@]}"; do
+    if ! grep -Fq "${name}=" "$log_file"; then
+      echo "FAIL: discovery missing for $name" >&2
+      tail -30 "$log_file" >&2 || true
+      exit 1
+    fi
+  done
+  echo "PASS: ${#ACTIVE_NAMES[@]} active connections discovered in one routed MCP process"
   exit 0
 fi
 

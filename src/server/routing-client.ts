@@ -1,4 +1,5 @@
 import { minimatch } from "minimatch";
+import { logger } from "./logger.js";
 import type { OpenGrokClientLike } from "./client.js";
 import type {
   DirectoryEntry,
@@ -76,12 +77,12 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
     }
 
     if (duplicateOwners.size > 0) {
-      const details = [...duplicateOwners.entries()]
+      const details = [...duplicateOwners.entries()].slice(0, 10)
         .map(([project, owners]) => `${JSON.stringify(project)} on ${[...new Set(owners)].join(", ")}`)
         .join("; ");
-      throw new Error(
-        `Duplicate OpenGrok project names make automatic routing ambiguous: ${details}. ` +
-        "Each configured server must expose unique project names."
+      logger.warn(
+        `Duplicate OpenGrok project names: ${duplicateOwners.size} project(s) use the first configured connection; ` +
+        `${details}${duplicateOwners.size > 10 ? "; ..." : ""}`
       );
     }
 

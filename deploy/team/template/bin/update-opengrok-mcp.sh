@@ -22,7 +22,7 @@ if [[ "$node_major" -lt 22 ]]; then
   exit 1
 fi
 if [[ "$PACKAGE" == "$BUNDLED_PACKAGE" && ! -r "$BUNDLED_PACKAGE" ]]; then
-  echo "Bundled Canary package is missing: $BUNDLED_PACKAGE" >&2
+  echo "Bundled package is missing: $BUNDLED_PACKAGE" >&2
   echo "Re-run install.sh from the deployment archive, or set OPENGROK_MCP_PACKAGE explicitly." >&2
   exit 1
 fi
@@ -37,5 +37,5 @@ chmod 600 "${SHARE_DIR}/installed-source.txt" 2>/dev/null || true
 echo "OpenGrok MCP installed: $($bin --version 2>/dev/null || echo OK)"
 
 if [[ "${1:-}" == "--latest" ]]; then
-  echo "WARNING: --latest switches away from the reviewed routing Canary build."
+  echo "WARNING: --latest switches away from the bundled version."
 fi

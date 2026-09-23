@@ -178,7 +178,7 @@ describe("OpenGrokRoutingClient", () => {
     expect(second.search).toHaveBeenCalledWith("needle", "full", ["beta"], 10, 0, undefined);
   });
 
-  it("rejects unknown and duplicate projects instead of guessing a route", async () => {
+  it("rejects unknown projects and keeps the first route for duplicate names", async () => {
     const first = mockClient("https://one.example/source/", [{ name: "shared" }]);
     const second = mockClient("https://two.example/source/", [{ name: "beta" }]);
     const router = await OpenGrokRoutingClient.connect([
@@ -189,12 +189,16 @@ describe("OpenGrokRoutingClient", () => {
 
     const duplicateOne = mockClient("https://one.example/", [{ name: "shared" }]);
     const duplicateTwo = mockClient("https://two.example/", [{ name: "shared" }]);
-    await expect(OpenGrokRoutingClient.connect([
+    const duplicateRouter = await OpenGrokRoutingClient.connect([
       { name: "one", client: duplicateOne },
       { name: "two", client: duplicateTwo },
-    ])).rejects.toThrow("automatic routing ambiguous");
-    expect(duplicateOne.close).toHaveBeenCalledOnce();
-    expect(duplicateTwo.close).toHaveBeenCalledOnce();
+    ]);
+    expect((await duplicateRouter.listProjects()).map((project) => project.name)).toEqual(["shared"]);
+    await duplicateRouter.search("needle", "full", ["shared"]);
+    expect(duplicateOne.search).toHaveBeenCalledOnce();
+    expect(duplicateTwo.search).not.toHaveBeenCalled();
+    expect(duplicateRouter.getBaseUrl("shared")).toBe("https://one.example/");
+    await duplicateRouter.close();
   });
 
   it("fails startup if any server cannot provide its project catalog", async () => {

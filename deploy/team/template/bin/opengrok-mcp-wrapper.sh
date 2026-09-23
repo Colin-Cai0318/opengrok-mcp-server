@@ -28,12 +28,7 @@ export no_proxy="127.0.0.1,localhost,::1${no_proxy:+,${no_proxy}}"
 # Resolve every cookieEnv and proxyEnv before starting the single routed MCP.
 # Existing process environment values take precedence over network.json, which
 # makes temporary Canary overrides possible without editing the installed file.
-resolved_count=0
-while IFS=$'\t' read -r key value; do
-  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "Invalid environment variable name: $key" >&2; exit 1; }
-  export "$key=$value"
-  resolved_count=$((resolved_count + 1))
-done < <(/usr/bin/python3 - "$CONNECTIONS_FILE" "$COOKIE_JSON" "$NETWORK_FILE" <<'PY'
+resolved_data="$(/usr/bin/python3 - "$CONNECTIONS_FILE" "$COOKIE_JSON" "$NETWORK_FILE" <<'PY'
 import json
 import os
 import sys
@@ -85,10 +80,12 @@ for key, value in resolved.items():
         raise SystemExit(f"environment value for {key} contains an unsupported control character")
     sys.stdout.write(key + "\t" + value + "\n")
 PY
-)
-
-(( resolved_count >= 4 )) || { echo "Not all connection credentials and proxy settings were resolved" >&2; exit 1; }
-unset key value resolved_count
+)"
+while IFS=$'\t' read -r key value; do
+  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "Invalid environment variable name: $key" >&2; exit 1; }
+  export "$key=$value"
+done <<< "$resolved_data"
+unset key value resolved_data
 
 # Do not alter inherited HTTP(S)_PROXY here. Native connection-level routing
 # overrides V/W with proxyEnv and masks it for X with direct=true.

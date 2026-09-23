@@ -2,13 +2,21 @@ importScripts("generated-config.js");
 const CFG = globalThis.OPENGROK_SYNC_CONFIG;
 const UPDATE_URL = `${CFG.helperUrl}/update`;
 const HEALTH_URL = `${CFG.helperUrl}/health`;
+const TARGETS_URL = `${CFG.helperUrl}/targets`;
 const ALARM_NAME = "opengrok-cookie-sync";
 const ALARM_PERIOD_MINUTES = 5;
-const TARGETS = {
-  OPENGROK_COOKIE_V: { label: "Android V", url: "__OPENGROK_V_URL__" },
-  OPENGROK_COOKIE_W: { label: "Android W", url: "__OPENGROK_W_URL__" },
-  OPENGROK_COOKIE_X: { label: "Android X / A17", url: "__OPENGROK_X_URL__" }
-};
+
+async function getTargets() {
+  const response = await fetch(TARGETS_URL, {
+    cache: "no-store",
+    headers: { "X-OpenGrok-Sync-Token": CFG.helperToken }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.ok || !Array.isArray(body.targets)) {
+    throw new Error(body.error || `Helper HTTP ${response.status}`);
+  }
+  return body.targets;
+}
 
 async function ensureAlarm() {
   const current = await chrome.alarms.get(ALARM_NAME);
@@ -31,18 +39,20 @@ async function helperHealth() {
 async function syncAll({ quiet = false } = {}) {
   const available = {};
   const result = {};
-  for (const [envName, target] of Object.entries(TARGETS)) {
+  const targets = await getTargets();
+  for (const target of targets) {
+    const envName = target.cookieEnv;
     try {
       const cookie = await buildCookieHeader(target.url);
       available[envName] = cookie.header;
-      result[envName] = { ok: true, count: cookie.count, label: target.label };
+      result[envName] = { ok: true, count: cookie.count, label: target.name };
     } catch (error) {
-      result[envName] = { ok: false, count: 0, label: target.label, error: String(error?.message || error) };
+      result[envName] = { ok: false, count: 0, label: target.name, error: String(error?.message || error) };
     }
   }
   if (!Object.keys(available).length) {
     if (quiet) return { ok: false, skipped: true, reason: "no-cookies", targets: result };
-    throw new Error("No OpenGrok cookies available. Open the three login pages first.");
+    throw new Error("No OpenGrok cookies available. Open the configured login pages first.");
   }
   const response = await fetch(UPDATE_URL, {
     method: "POST",
@@ -62,10 +72,11 @@ function cookieDomainAffectsTarget(cookieDomain, targetUrl) {
 
 let debounceTimer = null;
 chrome.cookies.onChanged.addListener((changeInfo) => {
-  const relevant = Object.values(TARGETS).some((target) => cookieDomainAffectsTarget(changeInfo.cookie.domain, target.url));
-  if (!relevant) return;
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => syncAll({ quiet: true }).catch(() => {}), 1500);
+  getTargets().then((targets) => {
+    if (!targets.some((target) => cookieDomainAffectsTarget(changeInfo.cookie.domain, target.url))) return;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => syncAll({ quiet: true }).catch(() => {}), 1500);
+  }).catch(() => {});
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) syncAll({ quiet: true }).catch(() => {});
@@ -82,8 +93,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "openLogins") {
-    Promise.all(Object.values(TARGETS).map((t) => chrome.tabs.create({ url: t.url })))
-      .then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    getTargets().then(async (targets) => {
+      const urls = [...new Set(targets.map((target) => target.url))];
+      await Promise.all(urls.map((url) => chrome.tabs.create({ url })));
+      sendResponse({ ok: true, count: urls.length });
+    }).catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
+  if (message?.type === "targets") {
+    getTargets().then((targets) => sendResponse({ ok: true, targets }))
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     return true;
   }
   return false;

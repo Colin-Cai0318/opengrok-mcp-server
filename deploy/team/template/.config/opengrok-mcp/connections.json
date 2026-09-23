@@ -1,20 +1,20 @@
 {
   "connections": {
-    "opengrok-android-v": {
-      "url": "__OPENGROK_V_URL__",
-      "cookieEnv": "OPENGROK_COOKIE_V",
+    "lx-opengrok-android-v": {
+      "url": "https://lx-v.example.com/source/",
+      "cookieEnv": "LX_OPENGROK_COOKIE_V",
       "proxyEnv": "OPENGROK_PROXY_VW",
       "verifySsl": true
     },
-    "opengrok-android-w": {
-      "url": "__OPENGROK_W_URL__",
-      "cookieEnv": "OPENGROK_COOKIE_W",
+    "lx-opengrok-android-w": {
+      "url": "https://lx-w.example.com/source/",
+      "cookieEnv": "LX_OPENGROK_COOKIE_W",
       "proxyEnv": "OPENGROK_PROXY_VW",
       "verifySsl": true
     },
-    "opengrok-android-x": {
-      "url": "__OPENGROK_X_URL__",
-      "cookieEnv": "OPENGROK_COOKIE_X",
+    "lx-opengrok-android-x": {
+      "url": "https://lx-x.example.com/source/",
+      "cookieEnv": "LX_OPENGROK_COOKIE_X",
       "direct": true,
       "verifySsl": true
     }

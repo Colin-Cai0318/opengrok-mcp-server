@@ -63,6 +63,14 @@ Native MCP integration, OS keychain credentials, 8 OpenGrok tools, SSRF protecti
 
 ---
 
+## [9.4.1] - 2026-09-23
+
+### Changed
+
+- Team deployment now reads its full connection catalog, enables LX servers by default, and adds or removes other servers with a local command.
+- Cookie Sync discovers enabled servers through the local helper and opens every enabled login URL.
+- Duplicate project names route to the first configured server, with a startup warning, so identical catalogs no longer prevent startup.
+
 ## [9.4.0] - 2026-09-21
 
 ### Added

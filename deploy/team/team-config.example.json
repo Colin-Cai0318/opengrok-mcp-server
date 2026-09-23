@@ -1,6 +1,5 @@
 {
-  "vUrl": "https://opengrok-v.example.com/source/",
-  "wUrl": "https://opengrok-w.example.com/source/",
-  "xUrl": "https://opengrok-x.example.com/source/",
-  "vwProxy": "http://proxy.example.com:8080"
+  "network": {
+    "OPENGROK_PROXY_VW": "http://proxy.example.com:8080"
+  }
 }
