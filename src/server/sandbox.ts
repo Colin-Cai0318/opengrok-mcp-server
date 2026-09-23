@@ -90,7 +90,7 @@ export const API_SPEC = {
     "IMPORTANT: Do NOT write Promise.all(...) in your sandbox JS — the Atomics bridge serializes calls from inside the VM. Use env.opengrok.batchSearch() instead — it runs queries in parallel on the host event loop.",
     "Prefer env.opengrok.getSymbolContext() over separate search+getFileContent.",
     "Prefer env.opengrok.batchSearch() over multiple env.opengrok.search() calls.",
-    "Pass projects as a non-empty string array: projects: ['myproject']. Never pass a bare string or an empty array. If no configured default project exists and the exact project is unknown, ask the user before searching.",
+    "Pass projects as a non-empty string array: projects: ['myproject']. Never pass a bare string or an empty array. If the exact name is unknown, call the opengrok_api tool with projectFilter first; if absent or ambiguous, ask the user before searching. Never guess from the first 50 names.",
     "env.opengrok.readMemory() returns null for uninitialized files — handle gracefully.",
     "When findFile() or search() returns multiple path matches and you cannot determine the correct file, call env.opengrok.elicit() with an enum of the top paths (≤10) before fetching content.",
     "When search() returns 0 results, check result._suggestions first — auto-populated with reformulation candidates when OPENGROK_ENABLE_SAMPLING is on. If absent (sampling off or no suggestions), call env.opengrok.sample() manually.",

@@ -201,16 +201,59 @@ describe("OpenGrokRoutingClient", () => {
     await duplicateRouter.close();
   });
 
-  it("fails startup if any server cannot provide its project catalog", async () => {
+  it("keeps reachable servers available and reports failed connections", async () => {
     const good = mockClient("https://one.example/source/", [{ name: "alpha" }]);
     const bad = mockClient("https://two.example/source/", []);
     vi.mocked(bad.listProjects).mockRejectedValue(new Error("HTTP 503"));
 
-    await expect(OpenGrokRoutingClient.connect([
+    const router = await OpenGrokRoutingClient.connect([
       { name: "one", client: good },
       { name: "two", client: bad },
-    ])).rejects.toThrow("two: HTTP 503");
-    expect(good.close).toHaveBeenCalledOnce();
+    ]);
+    expect(router.getConnectionStatus()).toEqual({ available: ["one"], unavailable: ["two"] });
+    expect((await router.listProjects()).map((project) => project.name)).toEqual(["alpha"]);
+    await router.search("needle", "full", ["alpha"]);
+    expect(good.search).toHaveBeenCalledOnce();
+    expect(() => router.getBaseUrl("missing")).toThrow("Unavailable connections: two");
     expect(bad.close).toHaveBeenCalledOnce();
+    await router.close();
+  });
+
+  it("warns when a server responds but returns no project catalog", async () => {
+    const good = mockClient("https://one.example/source/", [{ name: "alpha" }]);
+    const empty = mockClient("https://two.example/source/", []);
+    const router = await OpenGrokRoutingClient.connect([
+      { name: "one", client: good },
+      { name: "two", client: empty },
+    ]);
+    expect(router.getConnectionStatus().unavailable).toEqual(["two"]);
+    expect(empty.close).toHaveBeenCalledOnce();
+    await router.close();
+  });
+
+  it("clears a default project that may be on an unavailable server", async () => {
+    const good = mockClient("https://one.example/source/", [{ name: "alpha" }]);
+    const bad = mockClient("https://two.example/source/", []);
+    vi.mocked(bad.listProjects).mockRejectedValue(new Error("HTTP 503"));
+    const router = await OpenGrokRoutingClient.connect([
+      { name: "one", client: good },
+      { name: "two", client: bad },
+    ], "unavailable-default");
+    expect(router.getEffectiveDefaultProject()).toBeUndefined();
+    await expect(router.search("needle")).rejects.toThrow("requires at least one project");
+    await router.close();
+  });
+
+  it("fails startup only when every server is unavailable", async () => {
+    const first = mockClient("https://one.example/source/", []);
+    const second = mockClient("https://two.example/source/", []);
+    vi.mocked(first.listProjects).mockRejectedValue(new Error("HTTP 503"));
+    vi.mocked(second.listProjects).mockRejectedValue(new Error("timeout"));
+    await expect(OpenGrokRoutingClient.connect([
+      { name: "one", client: first },
+      { name: "two", client: second },
+    ])).rejects.toThrow("all connections");
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(second.close).toHaveBeenCalledOnce();
   });
 });

@@ -26,7 +26,7 @@ dist/team-deploy/opengork-mcp-v<npm-version>.zip
 Set an explicit deployment version when preparing a named Canary or release:
 
 ```bash
-npm run package:team-deploy -- --version 9.4.1
+npm run package:team-deploy -- --version 9.4.3
 ```
 
 The packager requires a clean working tree by default so `SOURCE_COMMIT` accurately identifies every bundled source file. `--allow-dirty` exists only for developing and testing the packaging workflow.

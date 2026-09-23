@@ -56,7 +56,8 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
 
   private constructor(
     private readonly routes: DiscoveredRoute[],
-    private readonly defaultProject?: string
+    private readonly defaultProject?: string,
+    private readonly unavailableConnections: string[] = []
   ) {
     const duplicateOwners = new Map<string, string[]>();
     const projectsByName = new Map<string, Project>();
@@ -87,9 +88,13 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
     }
 
     if (defaultProject && !this.projectRoutes.has(defaultProject)) {
-      throw new Error(
-        `Default project ${JSON.stringify(defaultProject)} was not discovered on any configured OpenGrok server.`
-      );
+      if (unavailableConnections.length === 0) {
+        throw new Error(
+          `Default project ${JSON.stringify(defaultProject)} was not discovered on any configured OpenGrok server.`
+        );
+      }
+      logger.warn(`Default project ${JSON.stringify(defaultProject)} is unavailable; searches require an explicit reachable project until recovery.`);
+      this.defaultProject = undefined;
     }
 
     this.projects = [...projectsByName.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -104,10 +109,13 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
     }
 
     const discovered = await Promise.allSettled(
-      connections.map(async (connection): Promise<DiscoveredRoute> => ({
-        ...connection,
-        projects: await connection.client.listProjects(),
-      }))
+      connections.map(async (connection): Promise<DiscoveredRoute> => {
+        const projects = await connection.client.listProjects();
+        if (projects.length === 0) {
+          throw new Error("no indexed projects returned; check authentication, URL, or indexing");
+        }
+        return { ...connection, projects };
+      })
     );
 
     const failures = discovered.flatMap((result, index) =>
@@ -115,15 +123,25 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
         ? [`${connections[index].name}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
         : []
     );
-    if (failures.length > 0) {
+    const available = discovered.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : []
+    );
+    if (available.length === 0) {
       await Promise.allSettled(connections.map(({ client }) => client.close()));
-      throw new Error(`OpenGrok project discovery failed for ${failures.join("; ")}`);
+      throw new Error(`OpenGrok project discovery failed for all connections: ${failures.join("; ")}`);
+    }
+    if (failures.length > 0) {
+      await Promise.allSettled(discovered.flatMap((result, index) =>
+        result.status === "rejected" ? [connections[index].client.close()] : []
+      ));
+      logger.warn(`OpenGrok connections unavailable at startup: ${failures.join("; ")}. Available connections remain usable; restart after recovery.`);
     }
 
     try {
       return new OpenGrokRoutingClient(
-        discovered.map((result) => (result as PromiseFulfilledResult<DiscoveredRoute>).value),
-        defaultProject?.trim() || undefined
+        available,
+        defaultProject?.trim() || undefined,
+        discovered.flatMap((result, index) => result.status === "rejected" ? [connections[index].name] : [])
       );
     } catch (error) {
       // Discovery has already created live HTTP clients. Constructor-level
@@ -142,7 +160,9 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
       const suffix = known.length > 20 ? `, ... (${known.length} total)` : "";
       throw new Error(
         `Project ${JSON.stringify(project)} was not discovered on any configured OpenGrok server. ` +
-        `Known projects: ${preview || "none"}${suffix}`
+        `Known projects: ${preview || "none"}${suffix}. ` +
+        `${this.unavailableConnections.length ? `Unavailable connections: ${this.unavailableConnections.join(", ")}. ` : ""}` +
+        "Look up project names by filter and ask the user to confirm an exact name; do not guess."
       );
     }
     return route;
@@ -216,6 +236,17 @@ export class OpenGrokRoutingClient implements OpenGrokClientLike {
     return Promise.resolve(
       this.projects.filter((project) => minimatch(project.name, glob, { nocase: true }))
     );
+  }
+
+  getConnectionStatus(): { available: string[]; unavailable: string[] } {
+    return {
+      available: this.routes.map((route) => route.name),
+      unavailable: [...this.unavailableConnections],
+    };
+  }
+
+  getEffectiveDefaultProject(): string | undefined {
+    return this.defaultProject;
   }
 
   async testConnection(): Promise<boolean> {

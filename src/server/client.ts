@@ -438,6 +438,7 @@ export interface OpenGrokClientLike {
   getFileSymbols(project: string, path: string): Promise<FileSymbols>;
   browseDirectory(project: string, path?: string): Promise<DirectoryEntry[]>;
   listProjects(filterPattern?: string): Promise<Project[]>;
+  getConnectionStatus?(): { available: string[]; unavailable: string[] };
   testConnection(): Promise<boolean>;
   warmCache(): void;
   getBaseUrl(project?: string): string;

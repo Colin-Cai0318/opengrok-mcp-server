@@ -210,7 +210,7 @@ const VERSION = (typeof __VERSION__ !== "undefined"
 export const SERVER_INSTRUCTIONS_TEMPLATE = `OpenGrok code search.
 {{PROJECT_STATUS}}
 {{MEMORY_STATUS}}
-Use an exact, non-empty project scope; list projects only when the name is unknown. Routing to the matching server is automatic. Prefer combined or batch tools, bounded file ranges, and the smallest useful response.`.trim();
+Use an exact, non-empty project scope. If unknown, call opengrok_list_projects with a name filter; if absent or ambiguous, ask the user to confirm rather than guessing. Routing is automatic. Prefer combined or batch tools, bounded file ranges, and the smallest useful response.`.trim();
 
 /**
  * Code Mode exposes only 5 tools and keeps initialization instructions bounded.
@@ -218,7 +218,7 @@ Use an exact, non-empty project scope; list projects only when the name is unkno
 export const SERVER_INSTRUCTIONS_CODE_MODE_TEMPLATE = `OpenGrok Code Mode.
 {{PROJECT_STATUS}}
 {{MEMORY_STATUS}}
-Use an exact, non-empty project scope; routing is automatic. Call opengrok_api only when project names or method syntax are unknown, not at session start. In opengrok_execute, env.opengrok is synchronous; use batchSearch instead of Promise.all and return only needed data. Use active-task.md and investigation-log.md only when useful.`.trim();
+Use an exact project scope; routing is automatic. If unknown, call opengrok_api with projectFilter to find the exact name; if absent or ambiguous, ask the user to confirm, never guess from a truncated list. In opengrok_execute, env.opengrok is synchronous; use batchSearch instead of Promise.all and return only needed data. Use active-task.md and investigation-log.md only when useful.`.trim();
 
 const STARTUP_PROJECT_LIMIT = 50;
 
@@ -242,42 +242,66 @@ export function formatStartupProjectStatus(
 /** Format remote project names as data, not instructions, for the MCP init prompt. */
 export function formatProjectCatalog(
   projectNames: string[],
-  defaultProject?: string
+  defaultProject?: string,
+  projectFilter?: string
 ): string {
   const uniqueNames = [...new Set(projectNames.map((name) => name.trim()).filter(Boolean))];
-  const visible = uniqueNames.slice(0, STARTUP_PROJECT_LIMIT);
+  const query = projectFilter?.trim();
+  const exact = query ? uniqueNames.find((name) => name === query) : undefined;
+  if (exact) {
+    return `[OpenGrok] Exact project name confirmed: ${JSON.stringify(exact)}. Use this exact name for routing.`;
+  }
+  const matching = query
+    ? uniqueNames.filter((name) => name.toLowerCase().includes(query.toLowerCase()))
+    : uniqueNames;
+  if (query && matching.length === 0) {
+    return `[OpenGrok] No reachable project matches ${JSON.stringify(query)}. Do not substitute another project; ask the user to confirm the exact name. An unavailable server may contain it.`;
+  }
+  const visible = matching.slice(0, STARTUP_PROJECT_LIMIT);
   const catalog = JSON.stringify(visible);
   const defaultHint = defaultProject?.trim()
     ? ` Configured default project: ${JSON.stringify(defaultProject.trim())}.`
     : "";
-  const remainder = uniqueNames.length > visible.length
-    ? ` Showing ${visible.length} of ${uniqueNames.length}; refresh the full list with the project-listing capability.`
+  const remainder = matching.length > visible.length
+    ? ` Showing ${visible.length} of ${matching.length}; narrow projectFilter to find the exact name.`
     : "";
 
   if (uniqueNames.length === 0) {
     return `[OpenGrok] Connected, but no indexed projects were returned.${defaultHint} Ask the user or administrator before searching.`;
   }
 
-  return `[OpenGrok] Connected. Available exact project names (${uniqueNames.length}): ${catalog}.${defaultHint}${remainder}`;
+  if (query) {
+    return `[OpenGrok] Requested exact project ${JSON.stringify(query)} was not found. ${matching.length} similar name(s): ${catalog}. Ask the user to confirm the intended exact name before searching; do not substitute automatically.${remainder}`;
+  }
+  return `[OpenGrok] Connected. Available exact project names (${uniqueNames.length}): ${catalog}.${defaultHint}${remainder}${uniqueNames.length > visible.length ? " Use opengrok_api with projectFilter to look beyond this preview." : ""}`;
 }
 
-async function resolveStartupProjectStatus(
+export function formatStartupConnectionWarning(client: OpenGrokClientLike): string {
+  const unavailable = client.getConnectionStatus?.().unavailable ?? [];
+  if (unavailable.length === 0) return "";
+  const names = unavailable.slice(0, 8).map((name) => JSON.stringify(name)).join(", ");
+  const more = unavailable.length > 8 ? `, +${unavailable.length - 8} more` : "";
+  return ` [OpenGrok] WARNING: ${unavailable.length} server(s) unavailable: ${names}${more}. Tell the user in your first reply; their projects cannot be searched. Continue with available servers only and restart MCP after recovery.`;
+}
+
+export async function resolveStartupProjectStatus(
   client: OpenGrokClientLike,
   defaultProject?: string
 ): Promise<string> {
+  const connectionWarning = formatStartupConnectionWarning(client);
   try {
     if (!(await client.testConnection())) {
-      return "[OpenGrok] Startup connection check failed. Recheck the selected server and credentials before searching.";
+      return `[OpenGrok] Startup connection check failed. Recheck the selected server and credentials before searching.${connectionWarning}`;
     }
   } catch {
-    return "[OpenGrok] Startup connection check failed. Recheck the selected server and credentials before searching.";
+    return `[OpenGrok] Startup connection check failed. Recheck the selected server and credentials before searching.${connectionWarning}`;
   }
 
   try {
     const projects = await client.listProjects();
-    return formatStartupProjectStatus(projects.map((project) => project.name), defaultProject);
+    return formatStartupProjectStatus(projects.map((project) => project.name), defaultProject) + connectionWarning;
   } catch {
-    return "[OpenGrok] Connected, but project discovery failed. Refresh the project list or ask the user before searching.";
+    return `[OpenGrok] Connected, but project discovery failed. Refresh the project list or ask the user before searching.${connectionWarning}`;
   }
 }
 
@@ -389,7 +413,7 @@ Read local C/C++ compiler flags and includes from compile_commands.json.
 - \`path\` — local absolute or workspace-relative path (required)`,
 
   opengrok_api: `## opengrok_api
-[Code Mode] Return the API and current project catalog on demand. Skip it when the project and method syntax are already known.`,
+[Code Mode] Return the API and project catalog on demand. Pass projectFilter to find exact names beyond the 50-name preview; a filtered call returns only matching names.`,
 
   opengrok_execute: `## opengrok_execute
 [Code Mode] Execute synchronous env.opengrok calls using exact projects from opengrok_api or prior results.
@@ -926,9 +950,9 @@ export const TOOL_DEFS: Record<string, {
     },
   },
   opengrok_api: {
-    description: "Show Code Mode API and projects only when scope or method syntax is unknown.",
+    description: "Show the Code Mode API when syntax is unknown, or look up exact project names with projectFilter.",
     parameters: {
-      _: { description: "(no input required)" },
+      projectFilter: { description: "Case-insensitive name fragment; returns matches without the API spec." },
     },
   },
   opengrok_execute: {
@@ -1022,8 +1046,9 @@ async function executeListProjects(
   client: OpenGrokClientLike
 ): Promise<{ text: string; structured: { projects: Project[]; total: number } }> {
   const projects = await client.listProjects(args.filter);
+  const warning = formatStartupConnectionWarning(client);
   return {
-    text: formatProjectsList(projects),
+    text: formatProjectsList(projects) + (warning ? `\n${warning.trim()}` : ""),
     structured: { projects, total: projects.length },
   };
 }
@@ -1840,25 +1865,33 @@ function registerCodeModeTools(
     {
       title: "OpenGrok API Reference",
       description: TOOL_DEFS.opengrok_api.description,
-      inputSchema: {},
+      inputSchema: {
+        projectFilter: z.string().max(100).optional().describe("Case-insensitive project-name substring. Use to find an exact name beyond the initial 50-name preview."),
+      },
       annotations: CODE_MODE_API_ANNOTATIONS,
     },
-    async () => {
+    async (args) => {
       auditLog({ type: "tool_invoke", tool: "opengrok_api" });
       try {
         let projectNames: string[] = [];
         let projectHint = "";
         try {
           projectNames = (await client.listProjects()).map((project) => project.name);
-          projectHint = `\n\n${formatProjectCatalog(projectNames, sessionDefaultProject)}`;
+          projectHint = `\n\n${formatProjectCatalog(projectNames, sessionDefaultProject, args.projectFilter)}`;
         } catch {
           projectHint = "\n\n[OpenGrok] Project discovery failed. Ask the user for an exact project name before searching.";
+        }
+        projectHint += formatStartupConnectionWarning(client);
+
+        if (args.projectFilter?.trim()) {
+          return { content: [{ type: "text", text: projectHint.trim() }] };
         }
 
         if (
           config.OPENGROK_ENABLE_ELICITATION &&
           !sessionDefaultProject &&
-          projectNames.length > 0
+          projectNames.length > 0 &&
+          projectNames.length <= 20
         ) {
           const choices = projectNames.slice(0, 20);
           const result = await elicitOrFallback(

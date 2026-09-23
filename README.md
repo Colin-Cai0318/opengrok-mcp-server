@@ -73,11 +73,12 @@ wizard configure one URL; for multiple URLs, add the manual MCP server entry sho
 ### Deployment requirements
 
 - Node.js 22 or newer is required when running the standalone npm/source build.
-- The machine or container running the MCP process must be able to reach every configured URL.
-- Project names must be globally unique across the configured servers. Duplicate names fail startup
-  because routing them automatically would be ambiguous.
-- Every server must return its project catalog during startup. Startup is all-or-nothing; an
-  unreachable or unauthorized server is reported by connection name.
+- The machine or container running the MCP process should be able to reach each configured URL.
+  If one server cannot return its project catalog, reachable servers remain usable; the MCP startup
+  instructions warn about unavailable connection names. Restart the MCP after that server recovers.
+- Duplicate project names route to the first configured server. Use the connection order to choose
+  priority, and verify duplicate names really refer to the same content.
+- Startup fails only when no configured server can return its project catalog.
 - Use an absolute path for the connections file in MCP client configuration. Relative paths are
   resolved from the MCP process working directory, which varies between clients.
 - Put credentials in environment variables available to the MCP process, not in the JSON file,
@@ -207,7 +208,11 @@ exist in that remote environment.
    and merges the results in deterministic round-robin order so every matching server is represented.
 
 Do not omit `projects` unless one connection defines `defaultProject`. Unknown project names fail
-with a preview of the discovered catalog instead of being sent to an arbitrary URL.
+with a preview of the discovered catalog instead of being sent to an arbitrary URL. In Code Mode,
+call `opengrok_api` with `projectFilter` to search beyond the first 50 displayed names; in classic
+mode, pass `filter` to `opengrok_list_projects`. If the requested exact name is absent, confirm with
+the user before searching a different project. Projects on unavailable servers are not searchable
+until the MCP restarts after recovery.
 
 Cross-server pagination currently applies `start_index` independently to each server before merging;
 it is not a global offset over the combined result stream. Single-server pagination is unchanged.
@@ -336,7 +341,7 @@ Set `OPENGROK_CODE_MODE=true` to switch to a 5-tool interface optimised for mult
 
 | Tool | Purpose |
 | ---- | ------- |
-| `opengrok_api` | Get the full API spec and project catalog on demand. Call it only when the project or method syntax is unknown. With `OPENGROK_ENABLE_ELICITATION=true`, it can also prompt for a working project. |
+| `opengrok_api` | Get the full API spec and a bounded project preview on demand. Pass `projectFilter` for a concise lookup across the full discovered catalog. With `OPENGROK_ENABLE_ELICITATION=true`, it can also prompt for a working project when the catalog is small. |
 | `opengrok_execute` | Run JavaScript in a sandboxed QuickJS VM with access to all OpenGrok operations via `env.opengrok.*` |
 
 All `env.opengrok.*` calls appear **synchronous** inside your code — the sandbox bridges async HTTP calls transparently using a SharedArrayBuffer + Atomics channel. Token savings of 80–95% are typical for complex investigations.
@@ -383,7 +388,7 @@ Access via `env.opengrok.readMemory(filename)` / `env.opengrok.writeMemory(filen
 
 When `OPENGROK_ENABLE_ELICITATION=true`, the server uses MCP Elicitation in two places:
 
-1. **On-demand project selection** — `opengrok_api` (Code Mode) prompts the user to select a working project when invoked, if no `OPENGROK_DEFAULT_PROJECT` is configured and more than one project exists.
+1. **On-demand project selection** — `opengrok_api` (Code Mode) can prompt the user to select a working project when no `OPENGROK_DEFAULT_PROJECT` is configured and the catalog has 2–20 projects. For larger catalogs, use `projectFilter` first so choices are not truncated.
 2. **Mid-execution** — Sandbox JS can call `env.opengrok.elicit(message, schema)` to ask the user to choose between multiple matching files, revisions, or projects at any point during execution.
 
 Requires a client that supports MCP Elicitation:

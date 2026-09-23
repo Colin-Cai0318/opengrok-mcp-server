@@ -50,8 +50,30 @@ describe('SERVER_INSTRUCTIONS token budget', () => {
       Array.from({ length: 52 }, (_, index) => `project-${index + 1}`),
     );
     expect(catalog).toContain('Showing 50 of 52');
-    expect(catalog).toContain('project-listing capability');
+    expect(catalog).toContain('opengrok_api with projectFilter');
     expect(catalog).not.toContain('project-51');
+  });
+
+  it('finds exact projects beyond the preview and asks for confirmation on misses', async () => {
+    const { formatProjectCatalog } = await import('../server/server.js');
+    const names = Array.from({ length: 100 }, (_, index) => `project-${index + 1}`);
+    expect(formatProjectCatalog(names, undefined, 'project-99')).toContain('Exact project name confirmed: "project-99"');
+    expect(formatProjectCatalog(names, undefined, 'project-')).toContain('Ask the user to confirm the intended exact name');
+    expect(formatProjectCatalog(names, undefined, 'missing')).toContain('Do not substitute another project; ask the user');
+  });
+
+  it('puts unavailable server names into the first-conversation status', async () => {
+    const { resolveStartupProjectStatus } = await import('../server/server.js');
+    const client = {
+      testConnection: async () => true,
+      listProjects: async () => [{ name: 'alpha' }],
+      getConnectionStatus: () => ({ available: ['one'], unavailable: ['two'] }),
+    };
+    const status = await resolveStartupProjectStatus(client as never);
+    expect(status).toContain('1 projects discovered');
+    expect(status).toContain('server(s) unavailable: "two"');
+    expect(status).toContain('Tell the user in your first reply');
+    expect(status).toContain('restart MCP after recovery');
   });
 
   it('no 3-step SESSION STARTUP sequence in template', async () => {

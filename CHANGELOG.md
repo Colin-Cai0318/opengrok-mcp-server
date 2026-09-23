@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [9.4.3] - 2026-09-23
+
+### Fixed
+
+- Code Mode can look up project names across the full catalog with `opengrok_api({ projectFilter })`; filtered responses stay concise. Missing or ambiguous names require user confirmation instead of a guessed route.
+- Multi-server startup keeps reachable servers usable when another server is unavailable, and names unavailable connections in the first-conversation instructions. Restart MCP after recovery to discover its projects.
+
 ## Highlights
 
 ### 💬 v9.0 — Code Mode Interactive Prompts & LLM Sampling

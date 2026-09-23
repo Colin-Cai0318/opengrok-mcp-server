@@ -146,17 +146,18 @@ if (firstArg === "setup" || firstArg === "--setup") {
         );
       }
 
-      config = Object.freeze({
-        ...resolved[0].config,
-        OPENGROK_DEFAULT_PROJECT: defaults[0] ?? "",
-      });
-      client = await OpenGrokRoutingClient.connect(
+      const router = await OpenGrokRoutingClient.connect(
         resolved.map(({ name, config: connectionConfig }) => ({
           name,
           client: new OpenGrokClient(connectionConfig),
         })),
-        config.OPENGROK_DEFAULT_PROJECT
+        defaults[0] ?? ""
       );
+      config = Object.freeze({
+        ...resolved[0].config,
+        OPENGROK_DEFAULT_PROJECT: router.getEffectiveDefaultProject() ?? "",
+      });
+      client = router;
       // Connection-file changes require a process restart; keep SIGHUP focused
       // on the already-resolved runtime flags instead of losing route context.
       configLoader = () => config;

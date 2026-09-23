@@ -162,6 +162,34 @@ describe('Code Mode — opengrok_api tool', () => {
     expect(text).toContain('readMemory');
     await client.close();
   });
+
+  it('filters the full project catalog without repeating the API spec', async () => {
+    const { client, ogClient } = await createCodeModeClient(bank);
+    ogClient.listProjects.mockResolvedValue(Array.from({ length: 100 }, (_, index) => ({ name: `project-${index + 1}` })));
+    const preview = await client.callTool({ name: 'opengrok_api', arguments: {} });
+    const previewText = (preview.content as { type: string; text: string }[])[0]?.text ?? '';
+    expect(previewText).not.toContain('"project-99"');
+    expect(previewText).toContain('projectFilter');
+
+    const exact = await client.callTool({ name: 'opengrok_api', arguments: { projectFilter: 'project-99' } });
+    const exactText = (exact.content as { type: string; text: string }[])[0]?.text ?? '';
+    expect(exactText).toContain('Exact project name confirmed: "project-99"');
+    expect(exactText).not.toContain('env.opengrok');
+
+    const missing = await client.callTool({ name: 'opengrok_api', arguments: { projectFilter: 'missing' } });
+    expect((missing.content as { type: string; text: string }[])[0]?.text).toContain('ask the user to confirm');
+    await client.close();
+  });
+
+  it('shows unavailable connections during project lookup', async () => {
+    const { client, ogClient } = await createCodeModeClient(bank);
+    Object.assign(ogClient, { getConnectionStatus: () => ({ available: ['lx'], unavailable: ['lc'] }) });
+    ogClient.listProjects.mockResolvedValue([{ name: 'android-lx' }]);
+    const result = await client.callTool({ name: 'opengrok_api', arguments: { projectFilter: 'android' } });
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? '';
+    expect(text).toContain('server(s) unavailable: "lc"');
+    await client.close();
+  });
 });
 
 describe('Code Mode — opengrok_execute tool', () => {
@@ -456,6 +484,24 @@ describe('Code Mode — opengrok_api project picker', () => {
 
     await client.callTool({ name: 'opengrok_api', arguments: {} });
     expect(mockedElicit).not.toHaveBeenCalled();
+  });
+
+  it('does not offer only the first 20 choices when the catalog is larger', async () => {
+    const ogClient = makeMockClient();
+    ogClient.listProjects.mockResolvedValueOnce(
+      Array.from({ length: 60 }, (_, index) => ({ name: `project-${index + 1}` }))
+    );
+    const config = makeConfig({ OPENGROK_DEFAULT_PROJECT: '', OPENGROK_ENABLE_ELICITATION: true });
+    const server = createServer(ogClient as never, config, bank);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test', version: '1.0' });
+    await client.connect(clientTransport);
+    const result = await client.callTool({ name: 'opengrok_api', arguments: {} });
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? '';
+    expect(mockedElicit).not.toHaveBeenCalled();
+    expect(text).toContain('projectFilter');
+    await client.close();
   });
 
   it('returns spec without hint when user cancels the picker', async () => {
